@@ -1,0 +1,43 @@
+# .NET build artifacts
+**/bin/
+**/obj/
+**/out/
+*.user
+*.userosscache
+*.vs
+*.suo
+*.userprefs
+
+# NuGet packages
+packages/
+*.nupkg
+*.snupkg
+
+# Test results
+TestResults/
+*.trx
+*.coverage
+
+# User-specific files
+*.rsuser
+*.DotSettings.user
+
+# Rider/IDEA
+.idea/
+*.sln.iml
+
+# VSCode
+.vscode/
+*.code-workspace
+
+# Benchmark results
+BenchmarkDotNet.Artifacts/
+
+# Environment variables
+.env
+.env.local
+*.local.json
+
+# OS generated
+.DS_Store
+Thumbs.db

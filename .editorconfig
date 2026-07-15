@@ -1,0 +1,40 @@
+root = true
+[*]
+indent_style = space
+indent_size = 4
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+# StyleCop rules - modern C# conventions
+dotnet_diagnostic.SA1200.severity = none
+dotnet_diagnostic.SA1633.severity = none
+dotnet_diagnostic.SA1309.severity = none
+dotnet_diagnostic.SA1516.severity = none
+dotnet_diagnostic.SA1208.severity = none
+dotnet_diagnostic.SA1210.severity = none
+dotnet_diagnostic.SA1513.severity = none
+dotnet_diagnostic.SA1101.severity = none
+dotnet_diagnostic.SA1202.severity = none
+dotnet_diagnostic.SA1214.severity = none
+dotnet_diagnostic.SA1413.severity = none
+dotnet_diagnostic.SA1502.severity = none
+dotnet_diagnostic.SA1503.severity = none
+dotnet_diagnostic.SA1127.severity = none
+
+# Code Analysis rules
+dotnet_diagnostic.CA1063.severity = none
+dotnet_diagnostic.CA1716.severity = none
+dotnet_diagnostic.CA1816.severity = none
+dotnet_diagnostic.CA1848.severity = none
+dotnet_diagnostic.SA0001.severity = none
+dotnet_diagnostic.SA1117.severity = none
+dotnet_diagnostic.SA1122.severity = none
+dotnet_diagnostic.CA1062.severity = none
+dotnet_diagnostic.CA1031.severity = none
+dotnet_diagnostic.CA1510.severity = none
+dotnet_diagnostic.CA1812.severity = none
+dotnet_diagnostic.CA1852.severity = none
+dotnet_diagnostic.CA1873.severity = none
+dotnet_diagnostic.CA2007.severity = none
+dotnet_diagnostic.CA2213.severity = none
