@@ -1,4 +1,4 @@
-# 🚀 EdiHybridCache - Event Driven Cache Invalidation Hybrid Cache
+# 🚀 EdiHybridCache - Event Driven Cache Invalidation with Hybrid Cache
 
 **The .NET Hybrid Cache Library — Blazing Fast, Battle-Tested, Enterprise-Ready**
 
