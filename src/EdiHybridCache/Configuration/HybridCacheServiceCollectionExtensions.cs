@@ -73,7 +73,8 @@ public static class HybridCacheServiceCollectionExtensions
     private static void TryParseEnvDouble(string envVar, Action<double> setter)
     {
         var value = Environment.GetEnvironmentVariable(envVar);
-        if (double.TryParse(value, out double parsed))
+        if (double.TryParse(value, System.Globalization.NumberStyles.Float | System.Globalization.NumberStyles.AllowThousands,
+                System.Globalization.CultureInfo.InvariantCulture, out double parsed))
             setter(parsed);
     }
 }

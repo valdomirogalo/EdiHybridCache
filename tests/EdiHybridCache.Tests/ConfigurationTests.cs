@@ -66,8 +66,8 @@ public class ConfigurationTests
         {
             Environment.SetEnvironmentVariable("L1_TTL_SECONDS", "500");
             Environment.SetEnvironmentVariable("DEFAULT_L2_TTL_SECONDS", "2000");
-            // Use comma as decimal separator (current culture is pt-BR)
-            Environment.SetEnvironmentVariable("L2_TTL_MULTIPLIER", "3,0");
+            // Use invariant decimal separator (period) — code parses with InvariantCulture
+            Environment.SetEnvironmentVariable("L2_TTL_MULTIPLIER", "3.0");
             Environment.SetEnvironmentVariable("REDIS_CONNECTION", "redis-prod:6379");
             Environment.SetEnvironmentVariable("RABBITMQ_HOST", "rabbit-test");
             Environment.SetEnvironmentVariable("RABBITMQ_USERNAME", "admin");
