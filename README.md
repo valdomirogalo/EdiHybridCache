@@ -490,7 +490,7 @@ using (await _asyncLock.LockAsync(key, cancellationToken))
 
 **MIT License** — Free to use, modify, distribute, and incorporate into any project (commercial or not). No attribution required, though appreciated.
 
-Copyright © 2026 Valdomiro
+Copyright © 2026 Valdomiro Galo
 
 ```
 Permission is hereby granted, free of charge, to any person obtaining a copy
