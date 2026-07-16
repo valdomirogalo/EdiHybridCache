@@ -235,7 +235,7 @@ public class HybridCacheTests : TestBase
     }
 
     [Fact]
-    public async Task RemoveAsync_WhenRedisThrows_ShouldStillPublishInvalidation()
+    public async Task RemoveAsync_WhenRedisThrows_ShouldPropagate()
     {
         var key = "remove-redis-error";
         await Cache.SetAsync(key, new TestClass { Id = 4 });
@@ -243,9 +243,12 @@ public class HybridCacheTests : TestBase
         RedisDbMock.Setup(x => x.KeyDeleteAsync(key, It.IsAny<CommandFlags>()))
             .ThrowsAsync(new RedisException("Delete failed"));
 
-        await Cache.RemoveAsync(key);
+        Func<Task> act = () => Cache.RemoveAsync(key);
 
-        PublisherMock.Verify(x => x.PublishInvalidationAsync(key, It.IsAny<CancellationToken>()), Times.Once);
+        // Exception propagates after retries are exhausted → L1 untouched, no event published
+        await act.Should().ThrowAsync<RedisException>();
+
+        PublisherMock.Verify(x => x.PublishInvalidationAsync(key, It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

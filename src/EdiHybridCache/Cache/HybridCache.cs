@@ -235,15 +235,20 @@ public class HybridCache : IHybridCache
             key, _options.L1TtlSeconds, l2Ttl.TotalSeconds);
     }
 
-    // Covered by: RemoveAsync_ShouldClearL1L2AndPublishInvalidation,
-    //   RemoveAsync_WhenRedisThrows_ShouldStillPublishInvalidation (x2)
+    // Covered by: RemoveAsync_ShouldClearL1L2AndPublishInvalidation (x1)
+    //   RemoveAsync_WhenRedisThrows_ShouldStillPublishInvalidation → renamed to
+    //   RemoveAsync_WhenRedisThrows_ShouldPropagate (x1)
     public async Task RemoveAsync(string key, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(key);
 
-        _memoryCache.Remove(key);
+        // Redis first: if deletion fails (exception propagates after retries), L1 is untouched
+        // → consistent state. No event is published for a key still in Redis.
+        await _retryPolicy
+            .ExecuteAsync(() => _redisDb.KeyDeleteAsync(key))
+            .ConfigureAwait(false);
 
-        await RedisSafeExecuteAsync(() => _redisDb.KeyDeleteAsync(key), key).ConfigureAwait(false);
+        _memoryCache.Remove(key);
 
         await PublisherSafeExecuteAsync(
             () => _publisher.PublishInvalidationAsync(key, cancellationToken), key).ConfigureAwait(false);
