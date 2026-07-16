@@ -3,14 +3,14 @@ name: Publish NuGet Package
 on:
   push:
     tags:
-      - 'v*'  # Dispara quando uma tag como v1.0.0 for criada
+      - 'v*'
 
 jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write  # Necessário para publicar no GitHub Packages
+      packages: write
 
     steps:
       - name: Checkout code
@@ -30,15 +30,15 @@ jobs:
       - name: Pack
         run: dotnet pack src/EdiHybridCache/EdiHybridCache.csproj --configuration Release --no-build --output ./nupkg
 
-      - name: Add GitHub Packages source
-        run: |
-          dotnet nuget add source --username ${{ github.actor }} \
-            --password ${{ secrets.GITHUB_TOKEN }} \
-            --store-password-in-clear-text \
-            --name github "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
-
       - name: Push to GitHub Packages
+        env:
+          # Prefer a Personal Access Token (PAT) over GITHUB_TOKEN because the latter
+          # may lack `write:packages` scope depending on org settings. Create a classic
+          # PAT with `write:packages` scope at https://github.com/settings/tokens and
+          # add it as a repository secret named NUGET_API_KEY.
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY || secrets.GITHUB_TOKEN }}
         run: |
           dotnet nuget push "./nupkg/*.nupkg" \
-            --api-key ${{ secrets.GITHUB_TOKEN }} \
-            --source "github"
+            --api-key "$NUGET_API_KEY" \
+            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --skip-duplicate
