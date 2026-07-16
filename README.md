@@ -31,10 +31,11 @@
 |--------|-------|-------|
 | **GetAsync L1 Hit** | **1.28 μs**, 144 B allocated | [Benchmark](#-benchmark-results) |
 | **SetAsync (100B)** | **7.4 μs**, 1.6 KB allocated | [Benchmark](#-benchmark-results) |
-| **Throughput** | **16,640 req/s** @ 5,000 VUs | [k6 Load Test](#-k6-load-test) |
-| **Failures** | **0.00%** @ 1.17M requests | [k6 Load Test](#-k6-load-test) |
+| **Throughput** | **9,303 req/s** @ 5,000 VUs | [k6 Load Test](#-k6-load-test) |
+| **Failures** | **0.00%** @ 652K requests | [k6 Load Test](#-k6-load-test) |
 | **Code Coverage** | **90.57% line**, 83.33% branch | [Coverage](#-code-coverage) |
 | **CRAP Score** | Reduced up to **69%** | [Complexity](#-code-quality--complexity) |
+| **Aspire AppHost** | Orchestrated Redis + RabbitMQ + Playground | [Aspire](#-aspire-apphost) |
 
 ---
 
@@ -281,24 +282,35 @@ BenchmarkDotNet v0.14.0, .NET 10.0.9, AMD Ryzen 7 5700U
 ## 🧪 k6 Load Test
 
 ```
-16,640 req/s · 0% failure · p(95) = 199 ms · 5,000 VUs
+9,303 req/s · 0% failure · p(95) = 739 ms · 5,000 VUs
 ```
 
-**Test scenario:** Set → Get × 2 → InvalidateLocal → Remove (5 operations per iteration)
+**Test scenario:** Set → Get(L1) → InvalidateLocal → Get(L2) → Remove → Get(Miss) (6 operations per iteration)
 
 | Metric | Value |
 |--------|-------|
-| **Total requests** | 1,166,430 |
-| **Peak throughput** | **16,640 req/s** |
+| **Total requests** | 652,176 |
+| **Peak throughput** | **9,303 req/s** |
 | **Virtual users** | 5,000 (ramp-up + plateau + ramp-down) |
 | **HTTP failures** | **0.00%** |
 | **Cache hit rate** | **100.00%** |
-| **SetAsync p(95)** | 230.9 ms |
-| **GetAsync p(95)** | **141.2 ms** |
-| **RemoveAsync p(95)** | 239.7 ms |
-| **Data received** | 554 MB (7.9 MB/s) |
+| **SetAsync p(95)** | 750 ms |
+| **GetAsync p(95)** | **709 ms** |
+| **RemoveAsync p(95)** | 889 ms |
+| **Data received** | 269 MB (3.8 MB/s) |
 
-**Thresholds:** `p(95) < 2s` → **passed** (199 ms) · `failure rate < 10%` → **passed** (0%)
+**Thresholds:** `p(95) < 2s` → **passed** (739 ms) · `failure rate < 10%` → **passed** (0%)
+
+#### Before vs After Redis Tuning
+
+| Metric | Before (default Redis) | After (tuned ConnectionMultiplexer) |
+|--------|-----------------------|-------------------------------------|
+| **Avg latency** | 1,500 ms | **270 ms** 🔻 |
+| **p(95) latency** | 982 ms | **739 ms** 🔻 |
+| **Delete p(95)** | 29,005 ms | **889 ms** 🔻🔥 |
+| **Max latency** | 32,446 ms | **1,546 ms** 🔻🔥 |
+| **L2 Hit rate** | 91.6% | **100%** ✅ |
+| **Delete success** | 92.5% | **100%** ✅ |
 
 ---
 
@@ -367,6 +379,7 @@ CRAP = (CC²) × (1 − coverage)³ + CC
 |----------|---------|-------------|
 | `REDIS_CONNECTION` | — | Redis connection string |
 | `RABBITMQ_HOST` | `localhost` | RabbitMQ host |
+| `RABBITMQ_PORT` | `5672` | RabbitMQ port |
 | `RABBITMQ_USERNAME` | `guest` | RabbitMQ username |
 | `RABBITMQ_PASSWORD` | `guest` | RabbitMQ password |
 | `L1_TTL_SECONDS` | `300` | L1 TTL (in-process memory) |
@@ -383,6 +396,7 @@ CRAP = (CC²) × (1 − coverage)³ + CC
   "EdiHybridCache": {
     "RedisConnectionString": "localhost:6379",
     "RabbitMqHost": "localhost",
+    "RabbitMqPort": 5672,
     "RabbitMqUseSsl": false,
     "L1TtlSeconds": 300,
     "DefaultL2TtlSeconds": 3600,
@@ -399,6 +413,8 @@ CRAP = (CC²) × (1 − coverage)³ + CC
 
 ## 🧰 How to Run
 
+### Standalone
+
 ```bash
 # Build
 dotnet build
@@ -409,13 +425,23 @@ dotnet test tests/EdiHybridCache.Tests
 # Run benchmarks
 dotnet run -c Release --project benchmarks/EdiHybridCache.Benchmarks
 
-# Run the playground (Web API with Swagger)
+# Run the playground (Web API with Swagger) - requires Redis + RabbitMQ
 dotnet run --project playground/EdiHybridCache.Playground --urls "http://localhost:5060"
 # Swagger UI: http://localhost:5060/swagger
 
 # Run k6 load test
 k6 run k6-load-test.js
 ```
+
+### With Aspire AppHost (recommended)
+
+The Aspire AppHost automatically provisions Redis and RabbitMQ containers, injects environment variables, and starts the Playground:
+
+```bash
+dotnet run --project src/EdiHybridCache.AppHost/EdiHybridCache.AppHost.csproj
+```
+
+The dashboard will be available at `https://localhost:XXXXX` (random port). Redis and RabbitMQ credentials are auto-generated — no manual configuration needed.
 
 ---
 
@@ -429,14 +455,21 @@ EdiHybridCache/
 │   │   ├── IHybridCache.cs       # Public interface
 │   │   ├── HybridCacheOptions.cs # Configuration options
 │   │   ├── AsyncLock.cs          # Per-key async locking
+│   │   ├── CacheMetrics.cs       # OpenTelemetry metrics
 │   │   ├── CompressionHelper.cs  # GZip compression (ArrayPool)
+│   │   ├── Constants.cs          # Central constants
 │   │   └── Invalidation/
 │   │       ├── ICacheInvalidationPublisher.cs
 │   │       ├── ICacheInvalidationSubscriber.cs
 │   │       ├── RabbitMqInvalidationPublisher.cs
 │   │       └── RabbitMqInvalidationSubscriber.cs
-│   └── Configuration/
-│       └── HybridCacheServiceCollectionExtensions.cs
+│   ├── Configuration/
+│   │   └── HybridCacheServiceCollectionExtensions.cs
+│   └── EdiHybridCache.csproj     # NuGet package
+├── src/EdiHybridCache.AppHost/  # 🚀 Aspire orchestration
+│   ├── Program.cs               # AppHost entry point
+│   ├── AppHostConstants.cs      # Resource names & env vars
+│   └── EdiHybridCache.AppHost.csproj
 ├── tests/                        # ✅ Unit tests (26/26 passing)
 │   └── EdiHybridCache.Tests/
 ├── benchmarks/                   # ⚡ Performance benchmarks
@@ -470,9 +503,10 @@ using (await _asyncLock.LockAsync(key, cancellationToken))
 ## 🔁 Resilience
 
 - **Redis retries**: Automatic Polly retry policy (configurable count + exponential backoff + jitter)
-- **RabbitMQ retries**: Separate retry policy for publisher failures
-- **Graceful degradation**: If RabbitMQ is down, cache continues operating; invalidation events are skipped with a warning
-- **Timeouts**: Configurable `RedisOperationTimeoutSeconds`
+- **RabbitMQ retries**: Separate Polly retry policy for publisher; **background reconnection** with exponential backoff (1s → 60s max) for subscriber
+- **Graceful degradation**: If RabbitMQ is down, cache continues operating; invalidation events are skipped with a warning; subscriber retries in background
+- **Timeouts**: Configurable `RedisOperationTimeoutSeconds` (default: 5s)
+- **Connection tuning**: `AbortOnConnectFail=false`, `SyncTimeout=5s`, `KeepAlive=60s`, `ReconnectRetryPolicy` for StackExchange.Redis
 
 ---
 
