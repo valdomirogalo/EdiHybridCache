@@ -31,8 +31,8 @@
 |--------|-------|-------|
 | **GetAsync L1 Hit** | **1.28 μs**, 144 B allocated | [Benchmark](#-benchmark-results) |
 | **SetAsync (100B)** | **7.4 μs**, 1.6 KB allocated | [Benchmark](#-benchmark-results) |
-| **Throughput** | **9,303 req/s** @ 5,000 VUs | [k6 Load Test](#-k6-load-test) |
-| **Failures** | **0.00%** @ 652K requests | [k6 Load Test](#-k6-load-test) |
+| **Throughput** | **9,562 req/s** @ 5,000 VUs | [k6 Load Test](#-k6-load-test) |
+| **Failures** | **0.00%** @ 670K requests | [k6 Load Test](#-k6-load-test) |
 | **Code Coverage** | **90.57% line**, 83.33% branch | [Coverage](#-code-coverage) |
 | **CRAP Score** | Reduced up to **69%** | [Complexity](#-code-quality--complexity) |
 | **Aspire AppHost** | Orchestrated Redis + RabbitMQ + Playground | [Aspire](#-aspire-apphost) |
@@ -282,35 +282,40 @@ BenchmarkDotNet v0.14.0, .NET 10.0.9, AMD Ryzen 7 5700U
 ## 🧪 k6 Load Test
 
 ```
-9,303 req/s · 0% failure · p(95) = 739 ms · 5,000 VUs
+9,562 req/s · 0% failure · p(95) = 629 ms · 5,000 VUs
 ```
 
 **Test scenario:** Set → Get(L1) → InvalidateLocal → Get(L2) → Remove → Get(Miss) (6 operations per iteration)
 
 | Metric | Value |
 |--------|-------|
-| **Total requests** | 652,176 |
-| **Peak throughput** | **9,303 req/s** |
+| **Total requests** | 670,404 |
+| **Peak throughput** | **9,562 req/s** |
 | **Virtual users** | 5,000 (ramp-up + plateau + ramp-down) |
 | **HTTP failures** | **0.00%** |
 | **Cache hit rate** | **100.00%** |
-| **SetAsync p(95)** | 750 ms |
-| **GetAsync p(95)** | **709 ms** |
-| **RemoveAsync p(95)** | 889 ms |
-| **Data received** | 269 MB (3.8 MB/s) |
+| **SetAsync p(95)** | 620 ms |
+| **GetAsync p(95)** | **604 ms** |
+| **RemoveAsync p(95)** | 744 ms |
+| **Data received** | 275 MB (3.9 MB/s) |
 
-**Thresholds:** `p(95) < 2s` → **passed** (739 ms) · `failure rate < 10%` → **passed** (0%)
+**Thresholds:** `p(95) < 2s` → **passed** (629 ms) · `failure rate < 10%` → **passed** (0%)
+
+> **Note:** The 16,640 req/s from earlier tests was achieved running the Playground standalone (direct Redis connection). The ~9,500 req/s under Aspire AppHost includes DCP proxy overhead for both Redis and RabbitMQ, but provides fully orchestrated infrastructure.
 
 #### Before vs After Redis Tuning
 
 | Metric | Before (default Redis) | After (tuned ConnectionMultiplexer) |
 |--------|-----------------------|-------------------------------------|
-| **Avg latency** | 1,500 ms | **270 ms** 🔻 |
-| **p(95) latency** | 982 ms | **739 ms** 🔻 |
-| **Delete p(95)** | 29,005 ms | **889 ms** 🔻🔥 |
+| **Avg latency** | 1,500 ms | **271 ms** 🔻 |
+| **p(95) latency** | 982 ms | **629 ms** 🔻 |
+| **Delete p(95)** | 29,005 ms | **744 ms** 🔻🔥 |
 | **Max latency** | 32,446 ms | **1,546 ms** 🔻🔥 |
 | **L2 Hit rate** | 91.6% | **100%** ✅ |
 | **Delete success** | 92.5% | **100%** ✅ |
+| **Throughput** | 2,304 req/s* | **9,562 req/s** 🔥 |
+
+_* Before run had 18% request failures (timeouts); after run has 0% failures._
 
 ---
 
