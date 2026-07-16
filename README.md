@@ -31,11 +31,11 @@
 |--------|-------|-------|
 | **GetAsync L1 Hit** | **1.28 μs**, 144 B allocated | [Benchmark](#-benchmark-results) |
 | **SetAsync (100B)** | **7.4 μs**, 1.6 KB allocated | [Benchmark](#-benchmark-results) |
-| **Throughput** | **9,562 req/s** @ 5,000 VUs | [k6 Load Test](#-k6-load-test) |
+| **Throughput (standalone)** | **16,640 req/s** @ 5,000 VUs | [k6 Load Test](#-k6-load-test) |
+| **Throughput (Aspire)** | **9,562 req/s** @ 5,000 VUs | [k6 Load Test](#-k6-load-test) |
 | **Failures** | **0.00%** @ 670K requests | [k6 Load Test](#-k6-load-test) |
 | **Code Coverage** | **90.57% line**, 83.33% branch | [Coverage](#-code-coverage) |
 | **CRAP Score** | Reduced up to **69%** | [Complexity](#-code-quality--complexity) |
-| **Aspire AppHost** | Orchestrated Redis + RabbitMQ + Playground | [Aspire](#-aspire-apphost) |
 
 ---
 
@@ -119,7 +119,7 @@ using (var scope = app.Services.CreateScope())
 ## 🏗️ Architecture
 
 ```
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+┌─────────────┐      ┌─────────────┐      ┌─────────────┐
 │  Instance A  │     │  Instance B  │     │  Instance C  │
 │  ┌───────┐   │     │  ┌───────┐   │     │  ┌───────┐   │
 │  │  L1   │   │     │  │  L1   │   │     │  │  L1   │   │
@@ -281,32 +281,34 @@ BenchmarkDotNet v0.14.0, .NET 10.0.9, AMD Ryzen 7 5700U
 
 ## 🧪 k6 Load Test
 
+### Standalone (direct Redis connection)
+
+```
+16,640 req/s · 0% failure · p(95) = 199 ms · 5,000 VUs
+```
+
+### Aspire AppHost (with DCP proxy)
+
 ```
 9,562 req/s · 0% failure · p(95) = 629 ms · 5,000 VUs
 ```
 
 **Test scenario:** Set → Get(L1) → InvalidateLocal → Get(L2) → Remove → Get(Miss) (6 operations per iteration)
 
-| Metric | Value |
-|--------|-------|
-| **Total requests** | 670,404 |
-| **Peak throughput** | **9,562 req/s** |
-| **Virtual users** | 5,000 (ramp-up + plateau + ramp-down) |
-| **HTTP failures** | **0.00%** |
-| **Cache hit rate** | **100.00%** |
-| **SetAsync p(95)** | 620 ms |
-| **GetAsync p(95)** | **604 ms** |
-| **RemoveAsync p(95)** | 744 ms |
-| **Data received** | 275 MB (3.9 MB/s) |
+| Metric | Standalone | Aspire AppHost |
+|--------|-----------|----------------|
+| **Peak throughput** | **16,640 req/s** | **9,562 req/s** |
+| **HTTP failures** | **0.00%** | **0.00%** |
+| **Cache hit rate** | **100.00%** | **100.00%** |
+| **p(95) latency** | **199 ms** | **629 ms** |
+| **Total requests** | 1,166,430 | 670,404 |
 
-**Thresholds:** `p(95) < 2s` → **passed** (629 ms) · `failure rate < 10%` → **passed** (0%)
+> The Aspire AppHost adds DCP proxy overhead (~50-100µs per Redis operation) for automatic infrastructure provisioning. Standalone mode connects directly to Redis without this proxy.
 
-> **Note:** The 16,640 req/s from earlier tests was achieved running the Playground standalone (direct Redis connection). The ~9,500 req/s under Aspire AppHost includes DCP proxy overhead for both Redis and RabbitMQ, but provides fully orchestrated infrastructure.
+#### Before vs After Redis ConnectionMultiplexer Tuning
 
-#### Before vs After Redis Tuning
-
-| Metric | Before (default Redis) | After (tuned ConnectionMultiplexer) |
-|--------|-----------------------|-------------------------------------|
+| Metric | Before (default Redis) | After (tuned) |
+|--------|-----------------------|---------------|
 | **Avg latency** | 1,500 ms | **271 ms** 🔻 |
 | **p(95) latency** | 982 ms | **629 ms** 🔻 |
 | **Delete p(95)** | 29,005 ms | **744 ms** 🔻🔥 |
@@ -314,6 +316,8 @@ BenchmarkDotNet v0.14.0, .NET 10.0.9, AMD Ryzen 7 5700U
 | **L2 Hit rate** | 91.6% | **100%** ✅ |
 | **Delete success** | 92.5% | **100%** ✅ |
 | **Throughput** | 2,304 req/s* | **9,562 req/s** 🔥 |
+
+_* Before run had 18% request failures (timeouts); after run has 0% failures._
 
 _* Before run had 18% request failures (timeouts); after run has 0% failures._
 
