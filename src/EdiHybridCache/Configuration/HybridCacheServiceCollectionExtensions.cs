@@ -51,6 +51,8 @@ public static class HybridCacheServiceCollectionExtensions
             config.ConnectRetry = 3;
             config.ReconnectRetryPolicy = new LinearRetry(1000);
             config.KeepAlive = 60;
+            config.ConfigCheckSeconds = 0;
+            config.TieBreaker = "";
 
             return ConnectionMultiplexer.Connect(config);
         });
