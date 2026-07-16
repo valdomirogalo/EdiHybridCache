@@ -307,16 +307,16 @@ BenchmarkDotNet v0.14.0, .NET 10.0.9, AMD Ryzen 7 5700U
 | **L1 hit rate** | 100% | 100% |
 | **L2 hit rate** | 100% | 100% |
 
-### Evolution of Optimizations
+### Status Final
 
-| Metric | V1 (default Redis) | V2 (Redis tuned) | V3 (Scoped HybridCache) | V4 (Singleton) |
-|--------|-------------------|-------------------|-------------------------|----------------|
-| **Standalone throughput** | 2,304 req/s | 9,562 req/s | 570 req/s | **15,164 req/s** 🔥 |
-| **Aspire throughput** | — | — | 604 req/s | **14,063 req/s** 🔥 |
-| **p(95) latency** | 982 ms | 629 ms | 12,260 ms | **225 ms** ✅ |
-| **Failures** | 18% | **0.00%** | **0.00%** | **0.00%** |
-| **p(95) < 2s threshold** | ❌ | ❌ | ❌ | **✅ Passed** |
-| **Memory usage** | ~2 GB dump | — | ~500 MB | **~200 MB** 📉 |
+| Metric | Status Final |
+|--------|-------------|
+| **Standalone throughput** | **15,164 req/s** 🔥 |
+| **Aspire throughput** | **14,063 req/s** 🔥 |
+| **p(95) latency** | **225 ms** ✅ |
+| **Failures** | **0.00%** |
+| **p(95) < 2s threshold** | **✅ Passed** |
+| **Memory usage** | **~200 MB** 📉 |
 
 ---
 
