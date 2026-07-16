@@ -6,6 +6,24 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <EnableNETAnalyzers>true</EnableNETAnalyzers>
     <AnalysisMode>All</AnalysisMode>
+    <NoWarn>$(NoWarn);SA1600;SA1611;SA1615;SA1602;CS1591;SA1514;SA1623</NoWarn>
+
+    <!-- NuGet package metadata -->
+    <PackageId>EdiHybridCache</PackageId>
+    <Version>0.1.0</Version>
+    <Authors>Valdomiro Galo</Authors>
+    <Title>EdiHybridCache</Title>
+    <Description>A hybrid L1 (memory) + L2 (Redis) caching library with RabbitMQ invalidation support for .NET.</Description>
+    <PackageTags>cache;hybrid-cache;redis;memory-cache;rabbitmq;invalidation;distributed-cache</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageProjectUrl>https://github.com/valdomirogalo/EdiHybridCache</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/valdomirogalo/EdiHybridCache</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>
