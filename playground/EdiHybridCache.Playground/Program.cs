@@ -44,6 +44,12 @@ builder.Services.AddSwaggerGen(options =>
     });
 });
 
+// Raise minimum ThreadPool threads for high-concurrency workloads.
+// Under 5K concurrent VUs with default min threads (1 per core), the ThreadPool
+// can only inject 1 new thread per 500 ms, causing starvation. Setting a higher
+// floor helps the pool scale faster to meet demand.
+ThreadPool.SetMinThreads(workerThreads: 32, completionPortThreads: 32);
+
 builder.Services.AddEdiHybridCache(builder.Configuration);
 
 var app = builder.Build();
@@ -55,9 +61,17 @@ using (var scope = app.Services.CreateScope())
 {
     try
     {
-        await scope.ServiceProvider.UseEdiHybridCacheSubscriberAsync();
+        // Timeout added after dump analysis: RabbitMQ startup could hang indefinitely,
+        // blocking the application startup. A 10-second timeout prevents this.
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        await scope.ServiceProvider.UseEdiHybridCacheSubscriberAsync(cts.Token);
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
         logger.LogInformation("RabbitMQ invalidation subscriber started successfully.");
+    }
+    catch (OperationCanceledException)
+    {
+        var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+        logger.LogWarning("RabbitMQ subscriber startup timed out. Cache will operate without remote invalidation.");
     }
     catch (Exception ex)
     {

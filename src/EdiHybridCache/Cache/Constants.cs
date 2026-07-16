@@ -30,8 +30,10 @@ public static class Constants
     // ─────────────────────────────────────────────────────────────────
     //  AsyncLock
     // ─────────────────────────────────────────────────────────────────
-    /// <summary>Number of stripes for the hash-based async lock.</summary>
-    public const int AsyncLockStripeCount = 1024;
+    /// <summary>Number of stripes for the hash-based async lock.
+    /// Increased from 1024 to 16384 after dump analysis showed 5M SemaphoreSlim waiters
+    /// (~438 MB) due to stripe contention under 5K concurrent VUs.</summary>
+    public const int AsyncLockStripeCount = 16384;
 
     /// <summary>Eviction percentage when MemoryCache size limit is reached.</summary>
     public const double CacheCompactionPercentage = 0.2;
@@ -43,7 +45,9 @@ public static class Constants
     public const int DefaultL2TtlSeconds = 3600;
     public const double DefaultL2TtlMultiplier = 1.5;
     public const int DefaultMaxCacheSizeBytes = 1024 * 1024;
-    public const int DefaultCompressionThresholdBytes = 1024;
+    /// <summary>Compression threshold raised from 1024 to 4096 after benchmark analysis showed
+    /// GZip Fastest adds ~50% latency overhead and ~4x GC allocations for data &lt; 4 KB.</summary>
+    public const int DefaultCompressionThresholdBytes = 4096;
     public const int DefaultRetryCount = 3;
     public const int DefaultRetryBaseDelaySeconds = 1;
     public const int DefaultRedisOperationTimeoutSeconds = 5;

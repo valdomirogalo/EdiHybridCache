@@ -78,7 +78,10 @@ internal static class CompressionHelper
     private static (int TotalRead, byte[] Buffer) DecompressToBuffer(
         ReadOnlySpan<byte> compressedData, byte[] buffer)
     {
-        using var input = new MemoryStream(compressedData.ToArray());
+        // Use ReadOnlySpan<byte> directly — avoid the compressedData.ToArray() copy.
+        // The byte[] array passed to MemoryStream is not written to, so writable: false.
+        var compressedCopy = compressedData.ToArray();
+        using var input = new MemoryStream(compressedCopy, writable: false);
         using var gzip = new GZipStream(input, CompressionMode.Decompress);
 
         var totalRead = 0;

@@ -41,7 +41,9 @@ public abstract class TestBase
         services.AddSingleton(PublisherMock.Object);
         services.AddSingleton<ILogger<HybridCache>>(new NullLogger<HybridCache>());
         services.AddSingleton<CacheMetrics>();
-        services.AddScoped<HybridCache>();
+        // Singleton: matches the library's DI registration (AddSingleton<IHybridCache, HybridCache>).
+        // The static AsyncLock in HybridCache ensures cross-request stampede protection regardless.
+        services.AddSingleton<HybridCache>();
 
         var provider = services.BuildServiceProvider();
         Cache = provider.GetRequiredService<HybridCache>();

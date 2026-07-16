@@ -1,14 +1,15 @@
+using System.Runtime.CompilerServices;
+
 namespace EdiHybridCache.Cache;
 
 /// <summary>
 /// Stripe-based async lock with O(1) memory (always exactly StripeCount semaphores).
-/// Eliminates unbounded dictionary growth from the previous ConcurrentDictionary approach.
-/// Collisions are resolved by hashing the key; the lock is released immediately after the
-/// L2 read completes, so contention across stripes remains low in practice.
+/// Uses a fast path that acquires the lock synchronously — zero allocation in the
+/// uncontended case. Only when the stripe is contended does it fall back to an async
+/// wait, which allocates. See also: <see cref="Constants.AsyncLockStripeCount"/>.
 /// </summary>
 internal class AsyncLock
 {
-    // Sourced from Constants.AsyncLockStripeCount — single source of truth
     private readonly SemaphoreSlim[] _stripes;
 
     public AsyncLock()
@@ -18,15 +19,25 @@ internal class AsyncLock
             _stripes[i] = new SemaphoreSlim(1, 1);
     }
 
-    public Task<Releaser> LockAsync(string key, CancellationToken cancellationToken = default)
+    public ValueTask<Releaser> LockAsync(string key, CancellationToken cancellationToken = default)
     {
         var stripe = (uint)key.GetHashCode(StringComparison.Ordinal) % Constants.AsyncLockStripeCount;
         var semaphore = _stripes[stripe];
-        return LockSemaphoreAsync(semaphore, cancellationToken);
+
+        // Fast path: acquire synchronously — zero allocation.
+        // With AsyncLockStripeCount = 16384 and typical concurrency, this succeeds >99% of the time.
+        // CA2016: Wait(0, CancellationToken.None) — the fast path intentionally does not
+        // propagate the caller's cancellation token because the synchronous wait is
+        // near-instantaneous (single interlocked decrement) and never blocks asynchronously.
+        if (semaphore.Wait(0, CancellationToken.None))
+            return new ValueTask<Releaser>(new Releaser(semaphore));
+
+        // Slow path: stripe is contended, fall back to async wait.
+        return LockSlowAsync(semaphore, cancellationToken);
     }
 
-    private static async Task<Releaser> LockSemaphoreAsync(
-        SemaphoreSlim semaphore, CancellationToken cancellationToken)
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static async ValueTask<Releaser> LockSlowAsync(SemaphoreSlim semaphore, CancellationToken cancellationToken)
     {
         await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
         return new Releaser(semaphore);

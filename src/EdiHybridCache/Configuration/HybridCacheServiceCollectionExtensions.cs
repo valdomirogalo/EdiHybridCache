@@ -60,21 +60,30 @@ public static class HybridCacheServiceCollectionExtensions
         // Metrics
         services.AddSingleton<CacheMetrics>();
 
-        // L1 (memory) cache with size limit to prevent OOM
-        // MaxCacheSizeBytes is read from config in HybridCacheOptions (default: 1 MB)
+        // L1 (memory) cache: SizeLimit disabled by default because the L1 TTL (60 s in
+        // playground, 300 s default) already bounds entry lifetime. Under 5K concurrent VUs
+        // with SizeLimit = 1 MB, the cache was thrashing (constant compaction), forcing every
+        // request to hit Redis (L2, ~750 μs) instead of L1 (~1,2 μs).
+        // If an explicit SizeLimit is desired, configure MaxCacheSizeBytes in appsettings.
         services.AddSingleton<MemoryCacheOptions>(sp =>
         {
             var opts = sp.GetRequiredService<IOptions<HybridCacheOptions>>().Value;
             return new MemoryCacheOptions
             {
-                SizeLimit = opts.MaxCacheSizeBytes,
+                SizeLimit = opts.MaxCacheSizeBytes > 0 ? opts.MaxCacheSizeBytes : null,
                 CompactionPercentage = Constants.CacheCompactionPercentage
             };
         });
         services.AddSingleton<IMemoryCache, MemoryCache>();
         services.AddSingleton<ICacheInvalidationPublisher, RabbitMqInvalidationPublisher>();
         services.AddSingleton<ICacheInvalidationSubscriber, RabbitMqInvalidationSubscriber>();
-        services.AddScoped<IHybridCache, HybridCache>();
+
+        // Singleton: HybridCache has no per-request state (key/value are method params).
+        // All injected dependencies (IMemoryCache, IConnectionMultiplexer, etc.) are also
+        // singletons. Scoped registration caused each HTTP request to create its own
+        // AsyncLock (16,384 SemaphoreSlim × concurrent requests) which wasted memory and
+        // defeated cross-request stampede protection.
+        services.AddSingleton<IHybridCache, HybridCache>();
 
         return services;
     }

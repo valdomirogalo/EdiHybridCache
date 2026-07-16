@@ -30,6 +30,13 @@ public class HybridCache : IHybridCache
     // Test coverage: RemoveAsync lines 165-184 → tests HybridCacheTests (x2)
     // Test coverage: DeserializeRedisValue lines 201-253 → tests GetAsync_WithCompression (x1)
     // Test coverage: SerializeValue lines 255-265 → tests SetAsync_WithCompression (x1)
+
+    // Static so all HybridCache instances share the same stripe set for cross-request
+    // stampede protection. Before this fix, each scoped instance had its own AsyncLock
+    // (16,384 SemaphoreSlim × concurrent requests), which both defeated stampede
+    // protection and caused significant memory pressure.
+    private static readonly AsyncLock _asyncLock = new();
+
     private readonly IMemoryCache _memoryCache;
     private readonly IDatabase _redisDb;
     private readonly ICacheInvalidationPublisher _publisher;
@@ -37,7 +44,6 @@ public class HybridCache : IHybridCache
     private readonly ILogger<HybridCache> _logger;
     private readonly HybridCacheOptions _options;
     private readonly JsonSerializerOptions _jsonOptions;
-    private readonly AsyncLock _asyncLock = new();
     private readonly AsyncRetryPolicy _retryPolicy;
 
     // Cached fields to avoid repeated TimeSpan.FromSeconds calls
