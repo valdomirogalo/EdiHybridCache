@@ -5,7 +5,7 @@
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
 [![Coverage](https://img.shields.io/badge/coverage-90.57%25-brightgreen)](https://github.com/valdomiro/EdiHybridCache)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)]()
-[![Publish NuGet Package](https://github.com/valdomirogalo/EdiHybridCache/actions/workflows/publish.yml/badge.svg?branch=main&event=release)](https://github.com/valdomirogalo/EdiHybridCache/actions/workflows/publish.yml)
+[![Publish NuGet Package](https://github.com/valdomirogalo/EdiHybridCache/actions/workflows/publish.yml/badge.svg)](https://github.com/valdomirogalo/EdiHybridCache/actions/workflows/publish.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 
