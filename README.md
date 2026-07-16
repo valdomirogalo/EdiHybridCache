@@ -309,18 +309,14 @@ BenchmarkDotNet v0.14.0, .NET 10.0.9, AMD Ryzen 7 5700U
 
 ### Evolution of Optimizations
 
-| Metric | V1 (default Redis) | V2 (Redis tuned) | V3 (Scoped HybridCache) | **V4 (Singleton)** |
-|--------|-------------------|-------------------|-------------------------|-------------------|
+| Metric | V1 (default Redis) | V2 (Redis tuned) | V3 (Scoped HybridCache) | V4 (Singleton) |
+|--------|-------------------|-------------------|-------------------------|----------------|
 | **Standalone throughput** | 2,304 req/s | 9,562 req/s | 570 req/s | **15,164 req/s** 🔥 |
 | **Aspire throughput** | — | — | 604 req/s | **14,063 req/s** 🔥 |
 | **p(95) latency** | 982 ms | 629 ms | 12,260 ms | **225 ms** ✅ |
 | **Failures** | 18% | **0.00%** | **0.00%** | **0.00%** |
 | **p(95) < 2s threshold** | ❌ | ❌ | ❌ | **✅ Passed** |
 | **Memory usage** | ~2 GB dump | — | ~500 MB | **~200 MB** 📉 |
-
-> **V3 regression:** HybridCache was registered as `AddScoped`, causing each HTTP request to create its own AsyncLock with 16,384 SemaphoreSlim stripes. This defeated cross-request stampede protection, wasted CPU on lock management per request, and caused massive thread pool contention. V4 fixes this with `AddSingleton` + `static readonly AsyncLock`.
-
-_All runs: Ryzen 7 5700U (8C/16T), .NET 10.0, single node, direct Redis._
 
 ---
 
