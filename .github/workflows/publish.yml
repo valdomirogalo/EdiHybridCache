@@ -28,7 +28,7 @@ jobs:
         run: dotnet build --configuration Release --no-restore
 
       - name: Pack
-        run: dotnet pack --configuration Release --no-build --output ./nupkg
+        run: dotnet pack src/EdiHybridCache/EdiHybridCache.csproj --configuration Release --no-build --output ./nupkg
 
       - name: Add GitHub Packages source
         run: |
