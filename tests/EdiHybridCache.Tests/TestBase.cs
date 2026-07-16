@@ -40,6 +40,7 @@ public abstract class TestBase
         services.AddSingleton(RedisMock.Object);
         services.AddSingleton(PublisherMock.Object);
         services.AddSingleton<ILogger<HybridCache>>(new NullLogger<HybridCache>());
+        services.AddSingleton<CacheMetrics>();
         services.AddScoped<HybridCache>();
 
         var provider = services.BuildServiceProvider();

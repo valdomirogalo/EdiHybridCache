@@ -2,6 +2,10 @@ import http from 'k6/http';
 import { check, sleep, group } from 'k6';
 import { Rate, Trend } from 'k6/metrics';
 
+// ─── Expected status codes ────────────────────────────────────────
+// 404 is expected (L2 Miss), so it won't count toward http_req_failed
+http.setResponseCallback(http.expectedStatuses(200, 204, 404));
+
 // ─── Configuration ──────────────────────────────────────────────
 export const options = {
   stages: [
@@ -23,10 +27,11 @@ const deleteDuration = new Trend('delete_duration_ms');
 const setSuccessRate = new Rate('set_success');
 const getSuccessRate = new Rate('get_success');
 const deleteSuccessRate = new Rate('delete_success');
-const getCacheHitRate = new Rate('get_cache_hit');
-const getCacheMissRate = new Rate('get_cache_miss');
+const l1HitRate = new Rate('l1_hit');
+const l2HitRate = new Rate('l2_hit');
+const l2MissRate = new Rate('l2_miss');
 
-const BASE_URL = 'http://localhost:5060';
+const BASE_URL = 'http://localhost:5000';
 
 // ─── Payload generator ───────────────────────────────────────────
 function randomPayload() {
@@ -43,9 +48,12 @@ function randomPayload() {
 export default function () {
   const payload = randomPayload();
   const key = payload.key;
+  const missKey = `k6-miss-${__VU}-${__ITER}`;
 
-  // 1. SET — Armazena valor no cache
-  group('SetAsync', () => {
+  // ═══════════════════════════════════════════════════════════════
+  //  1. SET — Write to L1 (memory) + L2 (Redis)
+  // ═══════════════════════════════════════════════════════════════
+  group('1 - SetAsync (L1 + L2)', () => {
     const res = http.post(
       `${BASE_URL}/cache/${key}`,
       payload.body,
@@ -59,22 +67,11 @@ export default function () {
     setSuccessRate.add(passed);
   });
 
-  // 2. GET — Read the newly written value (L1 Hit expected)
-  group('GetAsync (Hit)', () => {
-    const res = http.get(`${BASE_URL}/cache/${key}`);
-    const isHit = res.status === 200;
-    const isMiss = res.status === 404;
-    const passed = check(res, {
-      'Get status 200 or 404': (r) => isHit || isMiss,
-    });
-    getDuration.add(res.timings.duration);
-    getSuccessRate.add(passed);
-    getCacheHitRate.add(isHit);
-    getCacheMissRate.add(isMiss);
-  });
-
-  // 3. GET — Second read (should be L1 Hit)
-  group('GetAsync (L1 Hit)', () => {
+  // ═══════════════════════════════════════════════════════════════
+  //  2. GET (L1 Hit) — Key was just written to L1, read from memory
+  //     Expected: 200, < 2ms
+  // ═══════════════════════════════════════════════════════════════
+  group('2 - GetAsync (L1 Hit)', () => {
     const res = http.get(`${BASE_URL}/cache/${key}`);
     const isHit = res.status === 200;
     check(res, {
@@ -82,11 +79,13 @@ export default function () {
     });
     getDuration.add(res.timings.duration);
     getSuccessRate.add(isHit);
-    getCacheHitRate.add(isHit);
+    l1HitRate.add(isHit);
   });
 
-  // 4. INVALIDATE LOCAL — Clears L1
-  group('InvalidateLocal', () => {
+  // ═══════════════════════════════════════════════════════════════
+  //  3. INVALIDATE LOCAL — Clears L1 only; L2 (Redis) still has data
+  // ═══════════════════════════════════════════════════════════════
+  group('3 - InvalidateLocal (clear L1)', () => {
     const res = http.post(`${BASE_URL}/cache/invalidate-local/${key}`);
     const passed = check(res, {
       'Invalidate status 200': (r) => r.status === 200,
@@ -94,14 +93,46 @@ export default function () {
     });
   });
 
-  // 5. DELETE — Remove from cache
-  group('RemoveAsync', () => {
+  // ═══════════════════════════════════════════════════════════════
+  //  4. GET (L2 Hit) — L1 was cleared, falls back to Redis (L2)
+  //     Expected: 200, < 10ms (Redis round-trip)
+  // ═══════════════════════════════════════════════════════════════
+  group('4 - GetAsync (L2 Hit)', () => {
+    const res = http.get(`${BASE_URL}/cache/${key}`);
+    const isHit = res.status === 200;
+    check(res, {
+      'L2 Hit status 200': () => isHit,
+    });
+    getDuration.add(res.timings.duration);
+    getSuccessRate.add(isHit);
+    l2HitRate.add(isHit);
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  //  5. DELETE — Remove from L1 + L2 + publish invalidation
+  // ═══════════════════════════════════════════════════════════════
+  group('5 - RemoveAsync (L1 + L2)', () => {
     const res = http.del(`${BASE_URL}/cache/${key}`, null, { headers: {} });
     const passed = check(res, {
       'Delete status 204': (r) => r.status === 204,
     });
     deleteDuration.add(res.timings.duration);
     deleteSuccessRate.add(passed);
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  //  6. GET (L2 Miss) — Key was deleted; neither L1 nor L2 has it
+  //     Expected: 404
+  // ═══════════════════════════════════════════════════════════════
+  group('6 - GetAsync (L2 Miss)', () => {
+    const res = http.get(`${BASE_URL}/cache/${missKey}`);
+    const isMiss = res.status === 404;
+    check(res, {
+      'L2 Miss status 404': () => isMiss,
+    });
+    getDuration.add(res.timings.duration);
+    getSuccessRate.add(isMiss);
+    l2MissRate.add(isMiss);
   });
 
   // Small pause between iterations to avoid overload

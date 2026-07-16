@@ -13,10 +13,7 @@ namespace EdiHybridCache.Cache;
 
 public class HybridCache : IHybridCache
 {
-    private const int MaxKeyLength = 512;
-    private const int MaxValueSizeBytes = 100 * 1024 * 1024; // 100 MB
-    private const int JsonDefaultBufferSize = 4096;
-
+    // Limits sourced from Constants.cs — single source of truth
     // LoggerMessage.Define: zero allocation vs params object[] from traditional LogDebug
     // Estimated gain: ~40 B per call on hot paths (L1 Hit, L2 Hit, Miss)
     private static readonly Action<ILogger, string, Exception?> _l1HitLog =
@@ -36,6 +33,7 @@ public class HybridCache : IHybridCache
     private readonly IMemoryCache _memoryCache;
     private readonly IDatabase _redisDb;
     private readonly ICacheInvalidationPublisher _publisher;
+    private readonly CacheMetrics _metrics;
     private readonly ILogger<HybridCache> _logger;
     private readonly HybridCacheOptions _options;
     private readonly JsonSerializerOptions _jsonOptions;
@@ -51,18 +49,21 @@ public class HybridCache : IHybridCache
         IMemoryCache memoryCache,
         IConnectionMultiplexer redisConnection,
         ICacheInvalidationPublisher publisher,
+        CacheMetrics metrics,
         IOptions<HybridCacheOptions> options,
         ILogger<HybridCache> logger)
     {
         ArgumentNullException.ThrowIfNull(memoryCache);
         ArgumentNullException.ThrowIfNull(redisConnection);
         ArgumentNullException.ThrowIfNull(publisher);
+        ArgumentNullException.ThrowIfNull(metrics);
         ArgumentNullException.ThrowIfNull(options);
         ArgumentNullException.ThrowIfNull(logger);
 
         _memoryCache = memoryCache;
         _redisDb = redisConnection.GetDatabase();
         _publisher = publisher;
+        _metrics = metrics;
         _logger = logger;
         _options = options.Value;
 
@@ -70,7 +71,7 @@ public class HybridCache : IHybridCache
         {
             PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
             WriteIndented = false,
-            DefaultBufferSize = JsonDefaultBufferSize
+            DefaultBufferSize = Constants.JsonDefaultBufferSize
         };
 
         // Cache TimeSpan values to avoid repeated FromSeconds calls
@@ -104,21 +105,21 @@ public class HybridCache : IHybridCache
 
     private static void ValidateKeyLength(string key)
     {
-        if (key.Length > MaxKeyLength)
+        if (key.Length > Constants.MaxKeyLength)
         {
             throw new ArgumentException(
-                $"Key length exceeds maximum of {MaxKeyLength} characters. Actual length: {key.Length}.",
+                $"Key length exceeds maximum of {Constants.MaxKeyLength} characters. Actual length: {key.Length}.",
                 nameof(key));
         }
     }
 
     private bool ValidateMaxSize(int size, string key)
     {
-        if (size > MaxValueSizeBytes)
+        if (size > Constants.MaxValueSizeBytes)
         {
             _logger.LogWarning(
                 "Value for key {Key} exceeds max size ({Size} > {Max}). Skipping.",
-                key, size, MaxValueSizeBytes);
+                key, size, Constants.MaxValueSizeBytes);
             return false;
         }
 
@@ -156,19 +157,26 @@ public class HybridCache : IHybridCache
     //   GetAsync_WhenL1MissL2Miss, GetAsync_WhenRedisThrows,
     //   GetAsync_WhenRedisTimesOut, GetAsync_WithCompression,
     //   GetAsync_WhenConcurrentRequests_DoubleCheckPopulatesL1 (x7)
-    public async ValueTask<T?> GetAsync<T>(string key, CancellationToken cancellationToken = default) where T : class
+    public ValueTask<T?> GetAsync<T>(string key, CancellationToken cancellationToken = default) where T : class
     {
         ArgumentNullException.ThrowIfNull(key);
         ValidateKeyLength(key);
 
+        // Fast path: L1 hit — completely synchronous, no state machine allocation
         if (_memoryCache.TryGetValue(key, out T? cached))
         {
+            _metrics.L1Hits.Add(1);
             _l1HitLog(_logger, key, null);
 
-            // Synchronous ValueTask — zero Task allocation on L1 Hit
-            return cached;
+            return new ValueTask<T?>(cached);
         }
 
+        // Slow path requires async state machine for L2 lookup
+        return SlowGetAsync<T>(key, cancellationToken);
+    }
+
+    private async ValueTask<T?> SlowGetAsync<T>(string key, CancellationToken cancellationToken) where T : class
+    {
         using (await _asyncLock.LockAsync(key, cancellationToken).ConfigureAwait(false))
         {
             return await TryReadFromL2Async<T>(key).ConfigureAwait(false);
@@ -179,15 +187,18 @@ public class HybridCache : IHybridCache
     {
         if (_memoryCache.TryGetValue(key, out T? cached))
         {
+            _metrics.L1Hits.Add(1);
             _l1HitAfterLockLog(_logger, key, null);
             return cached;
         }
 
+        _metrics.RedisOperations.Add(1);
         var redisValue = await RedisSafeExecuteAsync(
             () => _redisDb.StringGetAsync(key), key).ConfigureAwait(false);
 
         if (redisValue.IsNull)
         {
+            _metrics.CacheMisses.Add(1);
             _cacheMissLog(_logger, key, null);
             return null;
         }
@@ -198,6 +209,7 @@ public class HybridCache : IHybridCache
             return null;
 
         SetMemoryCache(key, value, _l1Ttl);
+        _metrics.L2Hits.Add(1);
         _l2HitLog(_logger, key, null);
         return value;
     }
@@ -225,8 +237,10 @@ public class HybridCache : IHybridCache
         // Always write to L1 first (fast local cache)
         SetMemoryCache(key, value, _l1Ttl);
 
+        _metrics.SetOperations.Add(1);
         var bytes = SerializeValue(value);
 
+        _metrics.RedisOperations.Add(1);
         await RedisSafeExecuteAsync(
             () => _redisDb.StringSetAsync(key, bytes, l2Ttl), key).ConfigureAwait(false);
 
@@ -244,14 +258,17 @@ public class HybridCache : IHybridCache
 
         // Redis first: if deletion fails (exception propagates after retries), L1 is untouched
         // → consistent state. No event is published for a key still in Redis.
+        _metrics.RedisOperations.Add(1);
         await _retryPolicy
             .ExecuteAsync(() => _redisDb.KeyDeleteAsync(key))
             .ConfigureAwait(false);
 
+        _metrics.RemoveOperations.Add(1);
         _memoryCache.Remove(key);
 
         await PublisherSafeExecuteAsync(
             () => _publisher.PublishInvalidationAsync(key, cancellationToken), key).ConfigureAwait(false);
+        _metrics.InvalidationsPublished.Add(1);
         _logger.LogInformation("Cache removed and invalidation published for key: {Key}", key);
     }
 

@@ -6,6 +6,8 @@ using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Logging;
+using Polly;
+using Polly.Retry;
 
 namespace EdiHybridCache.Cache.Invalidation;
 
@@ -15,16 +17,14 @@ public class RabbitMqInvalidationSubscriber : ICacheInvalidationSubscriber
     private readonly IServiceProvider _serviceProvider;
     private readonly HybridCacheOptions _options;
     private readonly ILogger<RabbitMqInvalidationSubscriber> _logger;
+    private readonly AsyncRetryPolicy _retryPolicy;
     private readonly string _queueName;
 
-    // CWE-754 + CWE-295: async lazy init in StartAsync.
-    // No .GetAwaiter().GetResult() in constructor — no thread blocking.
     private IChannel? _channel;
     private IConnection? _connection;
     private readonly SemaphoreSlim _initLock = new(1, 1);
     private bool _initialized;
     private bool _disposed;
-    private Task? _initTask;
 
     public RabbitMqInvalidationSubscriber(
         IServiceProvider serviceProvider,
@@ -36,21 +36,47 @@ public class RabbitMqInvalidationSubscriber : ICacheInvalidationSubscriber
         _logger = logger;
 
         _queueName = string.IsNullOrEmpty(_options.InvalidationQueueName)
-            ? $"edi.cache.invalidation.{Environment.MachineName}.{Environment.ProcessId}.{Guid.NewGuid():N}"
+            ? $"{Constants.DefaultInvalidationExchange}.{Environment.MachineName}.{Environment.ProcessId}.{Guid.NewGuid():N}"
             : _options.InvalidationQueueName;
+
+        _retryPolicy = Policy
+            .Handle<Exception>(ex => ex is RabbitMQ.Client.Exceptions.BrokerUnreachableException ||
+                                      ex is System.IO.IOException)
+            .WaitAndRetryAsync(
+                _options.RetryCount,
+                retryAttempt => TimeSpan.FromSeconds(Math.Pow(_options.RetryBaseDelaySeconds, retryAttempt)),
+                onRetry: (ex, time) => _logger.LogWarning(ex, "RabbitMQ connection failed, retrying in {Delay}...", time));
     }
 
     public async Task StartAsync(CancellationToken cancellationToken = default)
     {
-        await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await InitializeAsync(cancellationToken).ConfigureAwait(false);
+            await StartConsumerAsync(cancellationToken).ConfigureAwait(false);
+            _initialized = true;
+        }
+        finally
+        {
+            // Schedule background retry only if startup failed
+            if (!_initialized)
+            {
+                _ = RetryInitializeForeverAsync();
+            }
+        }
+    }
 
+    private async Task StartConsumerAsync(CancellationToken cancellationToken)
+    {
         var consumer = new AsyncEventingBasicConsumer(_channel!);
         consumer.ReceivedAsync += async (model, ea) =>
         {
             try
             {
                 var body = ea.Body;
-                var message = JsonSerializer.Deserialize<InvalidationMessage>(Encoding.UTF8.GetString(body.Span));
+
+                // Deserialize directly from span, avoiding intermediate string allocation
+                var message = JsonSerializer.Deserialize<InvalidationMessage>(body.Span);
                 if (message != null)
                 {
                     using var scope = _serviceProvider.CreateScope();
@@ -74,62 +100,80 @@ public class RabbitMqInvalidationSubscriber : ICacheInvalidationSubscriber
         _logger.LogInformation("Started invalidation subscriber on queue: {QueueName}", _queueName);
     }
 
-    private async Task EnsureInitializedAsync(CancellationToken cancellationToken)
+    private async Task RetryInitializeForeverAsync()
     {
-        if (_initialized)
-            return;
+        const int maxDelaySeconds = 60;
+        var delay = _options.RetryBaseDelaySeconds;
 
-        if (_initTask != null)
+        while (!_disposed)
         {
-            await _initTask.WaitAsync(cancellationToken).ConfigureAwait(false);
-            return;
-        }
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(delay)).ConfigureAwait(false);
 
-        await _initLock.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
-        {
-            if (_initialized)
-                return;
+                if (_initialized || _disposed)
+                    return;
 
-            _initTask = InitializeAsync(cancellationToken);
-            await _initTask.ConfigureAwait(false);
-            _initialized = true;
-        }
-        finally
-        {
-            _initLock.Release();
+                await _initLock.WaitAsync().ConfigureAwait(false);
+                try
+                {
+                    if (_initialized || _disposed)
+                        return;
+
+                    await InitializeAsync(CancellationToken.None).ConfigureAwait(false);
+                    _initialized = true;
+
+                    await StartConsumerAsync(CancellationToken.None).ConfigureAwait(false);
+                    _logger.LogInformation("RabbitMQ subscriber reconnected and started successfully.");
+                    return;
+                }
+                finally
+                {
+                    _initLock.Release();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "RabbitMQ subscriber retry failed. Next attempt in {Delay}s...", delay);
+                delay = Math.Min(delay * 2, maxDelaySeconds);
+            }
         }
     }
 
     private async Task InitializeAsync(CancellationToken cancellationToken)
     {
-        var factory = CreateConnectionFactory();
-        _connection = await factory.CreateConnectionAsync(cancellationToken).ConfigureAwait(false);
-        _channel = await _connection.CreateChannelAsync(
-            new CreateChannelOptions(
-                publisherConfirmationsEnabled: false,
-                publisherConfirmationTrackingEnabled: false),
+        await _retryPolicy.ExecuteAsync(
+            async ct =>
+            {
+                var factory = CreateConnectionFactory();
+                _connection = await factory.CreateConnectionAsync(ct).ConfigureAwait(false);
+                _channel = await _connection.CreateChannelAsync(
+                    new CreateChannelOptions(
+                        publisherConfirmationsEnabled: false,
+                        publisherConfirmationTrackingEnabled: false),
+                    ct).ConfigureAwait(false);
+
+                await _channel.ExchangeDeclareAsync(
+                    _options.InvalidationExchange,
+                    ExchangeType.Fanout,
+                    durable: true,
+                    autoDelete: false,
+                    cancellationToken: ct).ConfigureAwait(false);
+
+                await _channel.QueueDeclareAsync(
+                    _queueName,
+                    durable: true,
+                    exclusive: true,
+                    autoDelete: true,
+                    cancellationToken: ct).ConfigureAwait(false);
+
+                await _channel.QueueBindAsync(
+                    _queueName,
+                    _options.InvalidationExchange,
+                    routingKey: "",
+                    cancellationToken: ct).ConfigureAwait(false);
+            },
             cancellationToken).ConfigureAwait(false);
-
-        await _channel.ExchangeDeclareAsync(
-            _options.InvalidationExchange,
-            ExchangeType.Fanout,
-            durable: true,
-            autoDelete: false,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        await _channel.QueueDeclareAsync(
-            _queueName,
-            durable: true,
-            exclusive: true,
-            autoDelete: true,
-            cancellationToken: cancellationToken).ConfigureAwait(false);
-
-        await _channel.QueueBindAsync(
-            _queueName,
-            _options.InvalidationExchange,
-            routingKey: "",
-            cancellationToken: cancellationToken).ConfigureAwait(false);
     }
 
     private ConnectionFactory CreateConnectionFactory()
@@ -137,6 +181,7 @@ public class RabbitMqInvalidationSubscriber : ICacheInvalidationSubscriber
         var factory = new ConnectionFactory
         {
             HostName = _options.RabbitMqHost,
+            Port = _options.RabbitMqPort,
             UserName = _options.RabbitMqUsername,
             Password = _options.RabbitMqPassword
         };

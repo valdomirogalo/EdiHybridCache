@@ -1,5 +1,5 @@
 {
     "appHost": {
-        "path": "../apphost.cs"
+        "path": "./src/EdiHybridCache.AppHost/EdiHybridCache.AppHost.csproj"
     }
 }

@@ -90,9 +90,10 @@ public class RabbitMqInvalidationPublisher : ICacheInvalidationPublisher
         var factory = new ConnectionFactory
         {
             HostName = _options.RabbitMqHost,
+            Port = _options.RabbitMqPort,
             UserName = _options.RabbitMqUsername,
             Password = _options.RabbitMqPassword,
-            RequestedHeartbeat = TimeSpan.FromSeconds(30)
+            RequestedHeartbeat = TimeSpan.FromSeconds(Constants.RabbitMqHeartbeatSeconds)
         };
 
         // CWE-295 (CVSS 7.4): configure SSL/TLS when enabled
@@ -116,7 +117,9 @@ public class RabbitMqInvalidationPublisher : ICacheInvalidationPublisher
         await EnsureInitializedAsync(cancellationToken).ConfigureAwait(false);
 
         var message = new InvalidationMessage { Key = key, Timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds() };
-        var body = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(message));
+
+        // Serialize directly to bytes, avoiding intermediate string allocation
+        var body = JsonSerializer.SerializeToUtf8Bytes(message);
         var properties = new BasicProperties();
         properties.Persistent = true;
 

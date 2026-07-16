@@ -26,7 +26,7 @@ public class HybridCacheBenchmark
     private string _missKey = null!;
     private string _removeKey = null!;
 
-    // Payloads de diferentes tamanhos
+    // Payloads of different sizes
     private readonly string _smallPayload = new('x', 100);
     private readonly string _mediumPayload = new('x', 10_000);
     private readonly string _largePayload = new('x', 200_000);
@@ -101,6 +101,7 @@ public class HybridCacheBenchmark
         services.AddSingleton<IConnectionMultiplexer>(redis);
         services.AddSingleton<ICacheInvalidationPublisher, NoOpPublisher>();
         services.AddSingleton<ILogger<HybridCache>>(_ => NullLogger<HybridCache>.Instance);
+        services.AddSingleton<CacheMetrics>();
         services.AddScoped<IHybridCache, HybridCache>();
         var provider = services.BuildServiceProvider();
         return provider.GetRequiredService<IHybridCache>();
@@ -153,10 +154,10 @@ public class HybridCacheBenchmark
         await _cache.SetAsync(NextKey(), _largePayload);
 
     // ═══════════════════════════════════════════
-    //  SETASYNC C/ COMPRESSÃO
+    //  SETASYNC WITH COMPRESSION
     // ═══════════════════════════════════════════
 
-    [Benchmark(Description = "SetAsync 10KB c/ compressão")]
+    [Benchmark(Description = "SetAsync 10KB with compression")]
     public async Task SetAsync_Medium_Compressed() =>
         await _cacheCompressed.SetAsync(NextKey(), _mediumPayload);
 
@@ -164,7 +165,7 @@ public class HybridCacheBenchmark
     //  REMOVEASYNC
     // ═══════════════════════════════════════════
 
-    [Benchmark(Description = "RemoveAsync (L1 populado)")]
+    [Benchmark(Description = "RemoveAsync (L1 populated)")]
     public async Task RemoveAsync()
     {
         var key = _removeKey;

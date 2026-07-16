@@ -5,17 +5,42 @@ namespace EdiHybridCache.Cache;
 
 internal static class CompressionHelper
 {
-    private const int MaxDecompressedBytes = 100 * 1024 * 1024; // 100 MB
-
+    // Limits sourced from Constants.cs — single source of truth
     public static byte[] Compress(ReadOnlySpan<byte> data)
     {
-        using var output = new MemoryStream(data.Length);
-        using (var gzip = new GZipStream(output, CompressionLevel.Fastest))
+        // Rent from ArrayPool to avoid LOH allocation for large values (>85 KB).
+        // The pooled buffer is sized for the worst case (incompressible data + overhead).
+        var buffer = ArrayPool<byte>.Shared.Rent(data.Length + Constants.GzipOverhead);
+        try
         {
-            gzip.Write(data);
-        }
+            // MemoryStream(byte[], writable: true) uses the provided array directly
+            // without allocating its own internal buffer.
+            using var output = new MemoryStream(buffer, 0, buffer.Length, writable: true);
+            using (var gzip = new GZipStream(output, CompressionLevel.Fastest, leaveOpen: true))
+            {
+                gzip.Write(data);
+            }
 
-        return output.ToArray();
+            var compressedLength = (int)output.Position;
+            var result = new byte[compressedLength];
+            buffer.AsSpan(0, compressedLength).CopyTo(result);
+            return result;
+        }
+        catch (NotSupportedException)
+        {
+            // Edge case: compressed output exceeded buffer.Length (extremely
+            // incompressible data). Fall back to the allocating approach.
+            using var fallback = new MemoryStream(data.Length);
+            using (var gzip = new GZipStream(fallback, CompressionLevel.Fastest))
+            {
+                gzip.Write(data);
+            }
+            return fallback.ToArray();
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
     }
 
     public static bool TryDecompress(ReadOnlySpan<byte> compressedData, out byte[] result)
@@ -26,19 +51,17 @@ internal static class CompressionHelper
             return true;
 
         var buffer = ArrayPool<byte>.Shared.Rent(
-            Math.Min(compressedData.Length * 10, MaxDecompressedBytes));
-
-        var totalRead = 0;
+            Math.Min(compressedData.Length * 10, Constants.MaxDecompressedBytes));
 
         try
         {
-            totalRead = DecompressToBuffer(compressedData, buffer);
+            var (totalRead, finalBuffer) = DecompressToBuffer(compressedData, buffer);
 
-            if (totalRead >= MaxDecompressedBytes)
+            if (totalRead >= Constants.MaxDecompressedBytes)
                 return false; // CWE-409: ZIP Bomb — hard cap reached
 
             result = new byte[totalRead];
-            buffer.AsSpan(0, totalRead).CopyTo(result);
+            finalBuffer.AsSpan(0, totalRead).CopyTo(result);
             return true;
         }
         catch (InvalidDataException)
@@ -52,12 +75,10 @@ internal static class CompressionHelper
         }
     }
 
-    private static int DecompressToBuffer(ReadOnlySpan<byte> compressedData, byte[] buffer)
+    private static (int TotalRead, byte[] Buffer) DecompressToBuffer(
+        ReadOnlySpan<byte> compressedData, byte[] buffer)
     {
-        using var input = new MemoryStream(compressedData.Length);
-        input.Write(compressedData);
-        input.Position = 0;
-
+        using var input = new MemoryStream(compressedData.ToArray());
         using var gzip = new GZipStream(input, CompressionMode.Decompress);
 
         var totalRead = 0;
@@ -70,7 +91,7 @@ internal static class CompressionHelper
             if (remaining == 0)
             {
                 // Expand buffer (doubles) up to the hard cap
-                var newSize = Math.Min(buffer.Length * 2, MaxDecompressedBytes);
+                var newSize = Math.Min(buffer.Length * 2, Constants.MaxDecompressedBytes);
                 if (newSize <= buffer.Length)
                     break;
 
@@ -84,8 +105,8 @@ internal static class CompressionHelper
             bytesRead = gzip.Read(buffer, totalRead, remaining);
             totalRead += bytesRead;
         }
-        while (bytesRead > 0 && totalRead < MaxDecompressedBytes);
+        while (bytesRead > 0 && totalRead < Constants.MaxDecompressedBytes);
 
-        return totalRead;
+        return (totalRead, buffer);
     }
 }

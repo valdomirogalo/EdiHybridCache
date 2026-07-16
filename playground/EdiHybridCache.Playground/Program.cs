@@ -2,11 +2,29 @@ using System.ComponentModel;
 using EdiHybridCache.Cache;
 using EdiHybridCache.Configuration;
 using Microsoft.AspNetCore.Mvc;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+// ──────────────────────────────────────────────
+//  OpenTelemetry / Aspire Metrics
+//  OTLP endpoint, headers, and service name are
+//  automatically injected by the Aspire AppHost.
+// ──────────────────────────────────────────────
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics => metrics
+        .AddAspNetCoreInstrumentation()
+        .AddRuntimeInstrumentation()
+        .AddMeter(CacheMetrics.MeterName))
+    .WithTracing(tracing => tracing
+        .AddAspNetCoreInstrumentation())
+    .UseOtlpExporter();
+
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new()

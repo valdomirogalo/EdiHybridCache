@@ -1,40 +1,43 @@
-using System.Collections.Concurrent;
-
 namespace EdiHybridCache.Cache;
 
+/// <summary>
+/// Stripe-based async lock with O(1) memory (always exactly StripeCount semaphores).
+/// Eliminates unbounded dictionary growth from the previous ConcurrentDictionary approach.
+/// Collisions are resolved by hashing the key; the lock is released immediately after the
+/// L2 read completes, so contention across stripes remains low in practice.
+/// </summary>
 internal class AsyncLock
 {
-    private const int MaxConcurrency = 1;
+    // Sourced from Constants.AsyncLockStripeCount — single source of truth
+    private readonly SemaphoreSlim[] _stripes;
 
-    private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
-
-    public async Task<Releaser> LockAsync(string key, CancellationToken cancellationToken = default)
+    public AsyncLock()
     {
-        var semaphore = _locks.GetOrAdd(key, _ => new SemaphoreSlim(MaxConcurrency, MaxConcurrency));
+        _stripes = new SemaphoreSlim[Constants.AsyncLockStripeCount];
+        for (var i = 0; i < Constants.AsyncLockStripeCount; i++)
+            _stripes[i] = new SemaphoreSlim(1, 1);
+    }
+
+    public Task<Releaser> LockAsync(string key, CancellationToken cancellationToken = default)
+    {
+        var stripe = (uint)key.GetHashCode(StringComparison.Ordinal) % Constants.AsyncLockStripeCount;
+        var semaphore = _stripes[stripe];
+        return LockSemaphoreAsync(semaphore, cancellationToken);
+    }
+
+    private static async Task<Releaser> LockSemaphoreAsync(
+        SemaphoreSlim semaphore, CancellationToken cancellationToken)
+    {
         await semaphore.WaitAsync(cancellationToken).ConfigureAwait(false);
-        return new Releaser(semaphore, key, _locks);
+        return new Releaser(semaphore);
     }
 
     internal readonly struct Releaser : IDisposable
     {
         private readonly SemaphoreSlim _semaphore;
-        private readonly string _key;
-        private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks;
 
-        public Releaser(SemaphoreSlim semaphore, string key, ConcurrentDictionary<string, SemaphoreSlim> locks)
-        {
-            _semaphore = semaphore;
-            _key = key;
-            _locks = locks;
-        }
+        public Releaser(SemaphoreSlim semaphore) => _semaphore = semaphore;
 
-        public void Dispose()
-        {
-            _semaphore.Release();
-
-            // If no one is waiting, remove the entry from the dictionary
-            if (_semaphore.CurrentCount == MaxConcurrency)
-                _locks.TryRemove(_key, out _);
-        }
+        public void Dispose() => _semaphore.Release();
     }
 }

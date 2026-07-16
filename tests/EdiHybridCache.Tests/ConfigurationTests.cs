@@ -10,6 +10,7 @@ using EdiHybridCache.Configuration;
 
 namespace EdiHybridCache.Tests;
 
+[Collection("ConfigurationTests")]
 public class ConfigurationTests
 {
     [Fact]
