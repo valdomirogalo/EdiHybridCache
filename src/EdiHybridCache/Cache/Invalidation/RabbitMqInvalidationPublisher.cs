@@ -136,7 +136,7 @@ public class RabbitMqInvalidationPublisher : ICacheInvalidationPublisher
             },
             cancellationToken).ConfigureAwait(false);
 
-        _logger.LogDebug("Published invalidation for key: {Key}", key);
+        _logger.LogDebug("Published invalidation for key: {Key}", Constants.SanitizeForLog(key));
     }
 
     public void Dispose()

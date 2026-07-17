@@ -125,7 +125,7 @@ public class HybridCache : IHybridCache
         {
             _logger.LogWarning(
                 "Value for key {Key} exceeds max size ({Size} > {Max}). Skipping.",
-                key, size, Constants.MaxValueSizeBytes);
+                Constants.SanitizeForLog(key), size, Constants.MaxValueSizeBytes);
             return false;
         }
 
@@ -142,7 +142,7 @@ public class HybridCache : IHybridCache
         }
         catch (Exception ex) when (ex is RedisException or TimeoutException)
         {
-            _logger.LogError(ex, "Redis error for key {Key}", key);
+            _logger.LogError(ex, "Redis error for key {Key}", Constants.SanitizeForLog(key));
             return default!;
         }
     }
@@ -155,7 +155,7 @@ public class HybridCache : IHybridCache
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Publisher operation failed for key {Key}. Remote invalidation skipped.", key);
+            _logger.LogWarning(ex, "Publisher operation failed for key {Key}. Remote invalidation skipped.", Constants.SanitizeForLog(key));
         }
     }
 
@@ -172,7 +172,7 @@ public class HybridCache : IHybridCache
         if (_memoryCache.TryGetValue(key, out T? cached))
         {
             _metrics.L1Hits.Add(1);
-            _l1HitLog(_logger, key, null);
+            _l1HitLog(_logger, Constants.SanitizeForLog(key), null);
 
             return new ValueTask<T?>(cached);
         }
@@ -194,7 +194,7 @@ public class HybridCache : IHybridCache
         if (_memoryCache.TryGetValue(key, out T? cached))
         {
             _metrics.L1Hits.Add(1);
-            _l1HitAfterLockLog(_logger, key, null);
+            _l1HitAfterLockLog(_logger, Constants.SanitizeForLog(key), null);
             return cached;
         }
 
@@ -205,7 +205,7 @@ public class HybridCache : IHybridCache
         if (redisValue.IsNull)
         {
             _metrics.CacheMisses.Add(1);
-            _cacheMissLog(_logger, key, null);
+            _cacheMissLog(_logger, Constants.SanitizeForLog(key), null);
             return null;
         }
 
@@ -216,7 +216,7 @@ public class HybridCache : IHybridCache
 
         SetMemoryCache(key, value, _l1Ttl);
         _metrics.L2Hits.Add(1);
-        _l2HitLog(_logger, key, null);
+        _l2HitLog(_logger, Constants.SanitizeForLog(key), null);
         return value;
     }
 
@@ -252,7 +252,7 @@ public class HybridCache : IHybridCache
 
         _logger.LogInformation(
             "Cache set for key: {Key} with L1 TTL={L1Ttl}s, L2 TTL={L2Ttl}s",
-            key, _options.L1TtlSeconds, l2Ttl.TotalSeconds);
+            Constants.SanitizeForLog(key), _options.L1TtlSeconds, l2Ttl.TotalSeconds);
     }
 
     // Covered by: RemoveAsync_ShouldClearL1L2AndPublishInvalidation (x1)
@@ -275,7 +275,7 @@ public class HybridCache : IHybridCache
         await PublisherSafeExecuteAsync(
             () => _publisher.PublishInvalidationAsync(key, cancellationToken), key).ConfigureAwait(false);
         _metrics.InvalidationsPublished.Add(1);
-        _logger.LogInformation("Cache removed and invalidation published for key: {Key}", key);
+        _logger.LogInformation("Cache removed and invalidation published for key: {Key}", Constants.SanitizeForLog(key));
     }
 
     // Covered by: PublishInvalidationAsync_ShouldDelegateToPublisher (x1)
@@ -313,7 +313,7 @@ public class HybridCache : IHybridCache
             // CWE-502 (CVSS 6.5): System.Text.Json is type-safe by default (no TypeNameHandling
             // like Newtonsoft). The where T : class constraint + null check + exception log
             // prevent arbitrary object injection via compromised Redis.
-            _logger.LogError(ex, "Failed to deserialize value for key {Key}. Possible cache poisoning.", key);
+            _logger.LogError(ex, "Failed to deserialize value for key {Key}. Possible cache poisoning.", Constants.SanitizeForLog(key));
             return null;
         }
         finally
@@ -328,7 +328,7 @@ public class HybridCache : IHybridCache
         {
             if (!CompressionHelper.TryDecompress(data, out var decompressed))
             {
-                _logger.LogWarning("Failed to decompress value for key {Key}. Skipping.", key);
+                _logger.LogWarning("Failed to decompress value for key {Key}. Skipping.", Constants.SanitizeForLog(key));
                 result = default;
                 return false;
             }

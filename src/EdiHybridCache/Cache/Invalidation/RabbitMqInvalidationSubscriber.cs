@@ -84,7 +84,7 @@ public class RabbitMqInvalidationSubscriber : ICacheInvalidationSubscriber
                     if (hybridCache is HybridCache hc)
                     {
                         hc.InvalidateLocal(message.Key);
-                        _logger.LogDebug("Invalidated local cache for key: {Key} from remote event.", message.Key);
+                        _logger.LogDebug("Invalidated local cache for key: {Key} from remote event.", Constants.SanitizeForLog(message.Key));
                     }
                 }
                 await _channel!.BasicAckAsync(ea.DeliveryTag, multiple: false, CancellationToken.None);

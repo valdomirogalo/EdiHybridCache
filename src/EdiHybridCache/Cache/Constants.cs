@@ -113,4 +113,16 @@ public static class Constants
     // ─────────────────────────────────────────────────────────────────
     /// <summary>Suffix appended to Redis connection strings for DCP proxy TLS.</summary>
     public const string RedisSslSuffix = ",ssl=true,abortConnect=false,password=";
+
+    // ─────────────────────────────────────────────────────────────────
+    //  CWE-117 Log Injection — Sanitization
+    // ─────────────────────────────────────────────────────────────────
+    /// <summary>Sanitizes a user-provided string for safe logging by removing
+    /// newline characters that could be used to forge log entries.</summary>
+    public static string SanitizeForLog(string value)
+    {
+        return value.Replace("\r\n", " ", StringComparison.Ordinal)
+                    .Replace("\n", " ", StringComparison.Ordinal)
+                    .Replace("\r", " ", StringComparison.Ordinal);
+    }
 }
