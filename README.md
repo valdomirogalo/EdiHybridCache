@@ -309,7 +309,7 @@ BenchmarkDotNet v0.14.0, .NET 10.0.9, AMD Ryzen 7 5700U
 
 ### Status Final
 
-| Metric | Status Final |
+| Metric | Status      |
 |--------|-------------|
 | **Standalone throughput** | **15,164 req/s** 🔥 |
 | **Aspire throughput** | **14,063 req/s** 🔥 |
