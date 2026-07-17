@@ -1,3 +1,4 @@
+version: "3.9"
 services:
   redis:
     image: redis:alpine
@@ -25,12 +26,26 @@ services:
     ports:
       - "5000:5000"
     environment:
-      - ASPNETCORE_URLS=http://+:5000
-      - ConnectionStrings__Redis=redis:6379
-      - RabbitMQ__HostName=rabbitmq
-      - RabbitMQ__UserName=guest
-      - RabbitMQ__Password=guest
+      ASPNETCORE_URLS: http://+:5000
+      ConnectionStrings__Redis: redis:6379
+      RabbitMQ__HostName: rabbitmq
+      RabbitMQ__UserName: guest
+      RabbitMQ__Password: guest
+      ASPNETCORE_SHUTDOWNTIMEOUT: "30"
+    ulimits:
+      nofile:
+        soft: 65535
+        hard: 65535
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    restart: unless-stopped
     depends_on:
       - redis
       - rabbitmq
-    restart: unless-stopped
+    
