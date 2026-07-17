@@ -8,7 +8,7 @@ using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Porta padrão 5000 (usada pelo k6 load test)
+// Default port 5000 (used by the k6 load test)
 builder.WebHost.UseUrls("http://+:5000");
 
 builder.Services.AddControllers();
