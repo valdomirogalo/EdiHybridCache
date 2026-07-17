@@ -280,14 +280,14 @@ BenchmarkDotNet v0.14.0, .NET 10.0.9, AMD Ryzen 7 5700U
 
 ## 🧪 k6 Load Test
 
-### Standalone (direct Redis connection) — V4 (HybridCache Singleton)
+### Standalone (direct Redis connection)
 
 ```
 15,164 req/s · 0% failure · p(95) = 226 ms · 5,000 VUs
 1,289,184 total requests, 1,718,912 checks passed ✅
 ```
 
-### Aspire AppHost (with DCP proxy) — V4 (HybridCache Singleton)
+### Aspire AppHost (with DCP proxy)
 
 ```
 14,063 req/s · 0% failure · p(95) = 225 ms · 5,000 VUs
