@@ -419,6 +419,18 @@ CRAP = (CC²) × (1 − coverage)³ + CC
 
 ## 🧰 How to Run
 
+### Docker (Redis + RabbitMQ)
+
+Start the required infrastructure (Redis and RabbitMQ) with Docker Compose:
+
+```bash
+docker-compose up -d
+```
+
+This starts:
+- **Redis** on `localhost:6379`
+- **RabbitMQ** on `localhost:5672` (AMQP) and `localhost:15672` (Management UI — `guest`/`guest`)
+
 ### Standalone
 
 ```bash
@@ -432,10 +444,12 @@ dotnet test tests/EdiHybridCache.Tests
 dotnet run -c Release --project benchmarks/EdiHybridCache.Benchmarks
 
 # Run the playground (Web API with Swagger) - requires Redis + RabbitMQ
-dotnet run --project playground/EdiHybridCache.Playground --urls "http://localhost:5060"
-# Swagger UI: http://localhost:5060/swagger
+# (start docker-compose first, or have Redis + RabbitMQ running locally)
+dotnet run --project playground/EdiHybridCache.Playground
+# Swagger UI: http://localhost:5000/swagger/index.html
+# API base URL: http://localhost:5000
 
-# Run k6 load test
+# Run k6 load test (while playground is running)
 k6 run k6-load-test.js
 ```
 

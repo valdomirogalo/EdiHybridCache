@@ -31,7 +31,7 @@ const l1HitRate = new Rate('l1_hit');
 const l2HitRate = new Rate('l2_hit');
 const l2MissRate = new Rate('l2_miss');
 
-const BASE_URL = 'http://localhost:5000';
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:5000';
 
 // ─── Payload generator ───────────────────────────────────────────
 function randomPayload() {

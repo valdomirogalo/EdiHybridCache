@@ -8,6 +8,9 @@ using OpenTelemetry.Trace;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Default port 5000 (used by the k6 load test)
+builder.WebHost.UseUrls("http://+:5000");
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
@@ -87,7 +90,6 @@ app.UseSwaggerUI(options =>
     options.RoutePrefix = "swagger";
 });
 
-app.UseHttpsRedirection();
 app.MapControllers();
 
 // ═══════════════════════════════════════════════════════════════════
@@ -226,6 +228,19 @@ app.MapPost("/cache/invalidate-local/{key}", (
 .Produces(StatusCodes.Status200OK)
 .ProducesProblem(StatusCodes.Status500InternalServerError)
 ;
+
+// ═══════════════════════════════════════════════════════════════════
+//  Startup notification — logs Kestrel listening addresses
+// ═══════════════════════════════════════════════════════════════════
+var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    startupLogger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+    startupLogger.LogInformation(" Kestrel is online — listening on:");
+    foreach (var address in app.Urls)
+        startupLogger.LogInformation("   {Address}", address);
+    startupLogger.LogInformation("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+});
 
 app.Run();
 
