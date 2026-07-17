@@ -377,10 +377,6 @@ CRAP = (CC²) × (1 − coverage)³ + CC
 
 ---
 
----
-
----
-
 ## ⚙️ Configuration
 
 ### Environment Variables
