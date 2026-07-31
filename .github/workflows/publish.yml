@@ -57,6 +57,15 @@ jobs:
             ./cosign.pub
           retention-days: 90
 
+      - name: Push to GitHub Packages
+        env:
+          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY }}
+        run: |
+          dotnet nuget push "./nupkg/*.nupkg" \
+            --api-key "$NUGET_API_KEY" \
+            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --skip-duplicate
+
       - name: Push to NuGet.org
         env:
           NUGET_ORG_API_KEY: ${{ secrets.NUGET_ORG_API_KEY }}
