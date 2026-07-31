@@ -30,19 +30,46 @@ jobs:
       - name: Pack
         run: dotnet pack src/EdiHybridCache/EdiHybridCache.csproj --configuration Release --no-build --output ./nupkg
 
-      - name: Sign package with Sigstore
-        uses: ./.github/workflows/sigstore-sign-keypair.yml
-        secrets: inherit
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign NuGet package with Cosign
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY_B64 }}
+        run: |
+          for pkg in ./nupkg/*.nupkg; do
+            echo "Signing $pkg ..."
+            cosign sign-blob \
+              --yes \
+              --key env://COSIGN_PRIVATE_KEY \
+              "$pkg" \
+              --output-signature "${pkg}.sig"
+            echo "✅ Signed: ${pkg}.sig"
+          done
+
+      - name: Upload signatures and public key
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-signatures
+          path: |
+            ./nupkg/*.sig
+            ./cosign.pub
+          retention-days: 90
 
       - name: Push to GitHub Packages
         env:
-          # Prefer a Personal Access Token (PAT) over GITHUB_TOKEN because the latter
-          # may lack `write:packages` scope depending on org settings. Create a classic
-          # PAT with `write:packages` scope at https://github.com/settings/tokens and
-          # add it as a repository secret named NUGET_API_KEY.
           NUGET_API_KEY: ${{ secrets.NUGET_API_KEY || secrets.GITHUB_TOKEN }}
         run: |
           dotnet nuget push "./nupkg/*.nupkg" \
             --api-key "$NUGET_API_KEY" \
             --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
+            --skip-duplicate
+
+      - name: Push to NuGet.org
+        env:
+          NUGET_ORG_API_KEY: ${{ secrets.NUGET_ORG_API_KEY }}
+        run: |
+          dotnet nuget push "./nupkg/*.nupkg" \
+            --api-key "$NUGET_ORG_API_KEY" \
+            --source "https://api.nuget.org/v3/index.json" \
             --skip-duplicate
