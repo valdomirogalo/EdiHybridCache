@@ -10,7 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      packages: write
 
     steps:
       - name: Checkout code
@@ -57,15 +56,6 @@ jobs:
             ./nupkg/*.sig
             ./cosign.pub
           retention-days: 90
-
-      - name: Push to GitHub Packages
-        env:
-          NUGET_API_KEY: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          dotnet nuget push "./nupkg/*.nupkg" \
-            --api-key "$NUGET_API_KEY" \
-            --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" \
-            --skip-duplicate
 
       - name: Push to NuGet.org
         env:
