@@ -60,7 +60,7 @@ jobs:
 
       - name: Push to GitHub Packages
         env:
-          NUGET_API_KEY: ${{ secrets.NUGET_API_KEY || secrets.GITHUB_TOKEN }}
+          NUGET_API_KEY: ${{ secrets.GITHUB_TOKEN }}
         run: |
           dotnet nuget push "./nupkg/*.nupkg" \
             --api-key "$NUGET_API_KEY" \
