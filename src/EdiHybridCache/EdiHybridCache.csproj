@@ -10,7 +10,7 @@
 
     <!-- NuGet package metadata -->
     <PackageId>EdiHybridCache</PackageId>
-    <Version>0.5.5</Version>
+    <Version>0.5.6</Version>
     <Authors>Valdomiro Galo (https://orcid.org/0009-0009-0862-1462)</Authors>
     <Title>EdiHybridCache</Title>
     <Description>A hybrid L1 (memory) + L2 (Redis) caching library with RabbitMQ invalidation support for .NET.</Description>
@@ -24,9 +24,12 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <EmbedUntrackedSources>true</EmbedUntrackedSources>
     <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
   </PropertyGroup>
 
   <ItemGroup>
+    <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+
     <AssemblyAttribute Include="System.Runtime.CompilerServices.InternalsVisibleToAttribute">
       <_Parameter1>EdiHybridCache.Tests</_Parameter1>
     </AssemblyAttribute>
