@@ -51,6 +51,24 @@ Or reference the project directly:
 <ProjectReference Include="..\src\EdiHybridCache\EdiHybridCache.csproj" />
 ```
 
+### 🔏 Verifying Package Signature (Sigstore)
+
+Every NuGet release is signed with [Sigstore](https://www.sigstore.dev/) using keyless signing via GitHub Actions OIDC. Signatures and certificates are attached as workflow artifacts on each release.
+
+1. Download the `.sig` and `.cert` files for the release version from the [workflow artifacts](https://github.com/valdomirogalo/EdiHybridCache/actions).
+2. Verify with [`cosign`](https://docs.sigstore.dev/system_config/installation/):
+
+```bash
+cosign verify-blob \
+  --certificate EdiHybridCache.X.Y.Z.nupkg.cert \
+  --signature EdiHybridCache.X.Y.Z.nupkg.sig \
+  --certificate-identity "https://github.com/valdomirogalo/EdiHybridCache/.github/workflows/publish.yml@refs/tags/vX.Y.Z" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  EdiHybridCache.X.Y.Z.nupkg
+```
+
+> Replace `X.Y.Z` with the actual version number. Verification succeeds if the package is authentic and was built by the trusted GitHub Actions pipeline.
+
 ---
 
 ## 🔧 Quick Start
@@ -546,7 +564,7 @@ using (await _asyncLock.LockAsync(key, cancellationToken))
 
 **MIT License** — Free to use, modify, distribute, and incorporate into any project (commercial or not). No attribution required, though appreciated.
 
-Copyright © 2026 Valdomiro Galo
+Copyright © 2026 Valdomiro Galo · [![ORCID](https://img.shields.io/badge/ORCID-0009--0009--0862--1462-A6CE39?logo=orcid)](https://orcid.org/0009-0009-0862-1462)
 
 ```
 Permission is hereby granted, free of charge, to any person obtaining a copy

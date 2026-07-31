@@ -40,4 +40,9 @@ COPY --from=build /app/publish .
 EXPOSE 5000
 ENV ASPNETCORE_URLS=http://+:5000
 
+LABEL org.opencontainers.image.authors="Valdomiro Galo (https://orcid.org/0009-0009-0862-1462)"
+LABEL org.opencontainers.image.url="https://github.com/valdomirogalo/EdiHybridCache"
+LABEL org.opencontainers.image.source="https://github.com/valdomirogalo/EdiHybridCache"
+LABEL org.opencontainers.image.licenses="MIT"
+
 ENTRYPOINT ["dotnet", "EdiHybridCache.Playground.dll"]

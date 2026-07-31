@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use EdiHybridCache in your research or project, please cite it as follows."
+title: EdiHybridCache
+abstract: A hybrid L1 (memory) + L2 (Redis) caching library with RabbitMQ invalidation support for .NET.
+authors:
+  - family-names: Galo
+    given-names: Valdomiro
+    orcid: "https://orcid.org/0009-0009-0862-1462"
+repository-code: "https://github.com/valdomirogalo/EdiHybridCache"
+url: "https://github.com/valdomirogalo/EdiHybridCache"
+license: MIT
+version: 0.3.0
+date-released: "2026-07-31"
+keywords:
+  - cache
+  - hybrid-cache
+  - redis
+  - memory-cache
+  - rabbitmq
+  - dotnet
+  - invalidation
+  - distributed-cache

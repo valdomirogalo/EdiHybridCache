@@ -2,20 +2,14 @@
 
 ## Supported Versions
 
-Use this section to tell people about which versions of your project are
-currently being supported with security updates.
-
 | Version | Supported          |
 | ------- | ------------------ |
-| 5.1.x   | :white_check_mark: |
-| 5.0.x   | :x:                |
-| 4.0.x   | :white_check_mark: |
-| < 4.0   | :x:                |
+| 0.3.x   | :white_check_mark: |
 
 ## Reporting a Vulnerability
 
-Use this section to tell people how to report a vulnerability.
+To report a vulnerability, please open a [GitHub Security Advisory](https://github.com/valdomirogalo/EdiHybridCache/security/advisories/new).
 
-Tell them where to go, how often they can expect to get an update on a
-reported vulnerability, what to expect if the vulnerability is accepted or
-declined, etc.
+- **Author**: Valdomiro Galo ([ORCID](https://orcid.org/0009-0009-0862-1462))
+- **Response time**: You can expect an initial response within 48 hours.
+- **Disclosure**: We follow coordinated disclosure. Please do not disclose vulnerabilities publicly before a fix is released.
