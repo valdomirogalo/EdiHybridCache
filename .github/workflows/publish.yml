@@ -11,8 +11,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      id-token: write       # required for Sigstore keyless signing via OIDC
-      attestations: write   # required for uploading attestations to GitHub
 
     steps:
       - name: Checkout code
@@ -36,24 +34,26 @@ jobs:
         uses: sigstore/cosign-installer@v3
 
       - name: Sign NuGet package with Cosign
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY_B64 }}
         run: |
           for pkg in ./nupkg/*.nupkg; do
             echo "Signing $pkg ..."
             cosign sign-blob \
               --yes \
+              --key env://COSIGN_PRIVATE_KEY \
               "$pkg" \
-              --output-signature "${pkg}.sig" \
-              --output-certificate "${pkg}.cert"
-            echo "✅ Signed: ${pkg}.sig / ${pkg}.cert"
+              --output-signature "${pkg}.sig"
+            echo "✅ Signed: ${pkg}.sig"
           done
 
-      - name: Upload signatures as artifact
+      - name: Upload signatures and public key as artifact
         uses: actions/upload-artifact@v4
         with:
           name: nuget-signatures
           path: |
             ./nupkg/*.sig
-            ./nupkg/*.cert
+            ./cosign.pub
           retention-days: 90
 
       - name: Push to GitHub Packages

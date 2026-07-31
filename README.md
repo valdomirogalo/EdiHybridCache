@@ -53,21 +53,19 @@ Or reference the project directly:
 
 ### 🔏 Verifying Package Signature (Sigstore)
 
-Every NuGet release is signed with [Sigstore](https://www.sigstore.dev/) using keyless signing via GitHub Actions OIDC. Signatures and certificates are attached as workflow artifacts on each release.
+Every NuGet release is signed with [Sigstore](https://www.sigstore.dev/) using a private key stored as a GitHub Actions secret. The public key (`cosign.pub`) is available in the repository and in every workflow artifact.
 
-1. Download the `.sig` and `.cert` files for the release version from the [workflow artifacts](https://github.com/valdomirogalo/EdiHybridCache/actions).
+1. Download the `.sig` file for the release version from the [workflow artifacts](https://github.com/valdomirogalo/EdiHybridCache/actions) and the public key from the repo root.
 2. Verify with [`cosign`](https://docs.sigstore.dev/system_config/installation/):
 
 ```bash
 cosign verify-blob \
-  --certificate EdiHybridCache.X.Y.Z.nupkg.cert \
+  --key cosign.pub \
   --signature EdiHybridCache.X.Y.Z.nupkg.sig \
-  --certificate-identity "https://github.com/valdomirogalo/EdiHybridCache/.github/workflows/publish.yml@refs/tags/vX.Y.Z" \
-  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   EdiHybridCache.X.Y.Z.nupkg
 ```
 
-> Replace `X.Y.Z` with the actual version number. Verification succeeds if the package is authentic and was built by the trusted GitHub Actions pipeline.
+> Replace `X.Y.Z` with the actual version number. Verification succeeds if the package was signed by the trusted private key.
 
 ---
 
