@@ -35,8 +35,10 @@ jobs:
 
       - name: Sign NuGet package with Cosign
         env:
-          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY_B64 }}
+          COSIGN_PRIVATE_KEY_B64: ${{ secrets.COSIGN_PRIVATE_KEY_B64 }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
         run: |
+          export COSIGN_PRIVATE_KEY=$(echo "$COSIGN_PRIVATE_KEY_B64" | base64 -d)
           for pkg in ./nupkg/*.nupkg; do
             echo "Signing $pkg ..."
             cosign sign-blob \
