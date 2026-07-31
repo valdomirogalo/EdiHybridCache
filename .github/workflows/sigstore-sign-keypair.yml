@@ -1,0 +1,66 @@
+name: Sigstore Sign (Key Pair)
+
+on:
+  workflow_call:
+    inputs:
+      packages-path:
+        description: 'Directory containing .nupkg files to sign'
+        type: string
+        required: false
+        default: './nupkg'
+      public-key-path:
+        description: 'Path to the cosign public key file'
+        type: string
+        required: false
+        default: './cosign.pub'
+      artifact-name:
+        description: 'Name for the uploaded artifact'
+        type: string
+        required: false
+        default: 'nuget-signatures'
+      artifact-retention-days:
+        description: 'How many days to retain the artifact'
+        type: number
+        required: false
+        default: 90
+
+permissions:
+  contents: read
+
+jobs:
+  sign:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Sign packages with Cosign
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY_B64 }}
+        run: |
+          echo "Scanning: ${{ inputs.packages-path }}"
+          count=0
+          for pkg in ${{ inputs.packages-path }}/*.nupkg; do
+            [ -f "$pkg" ] || continue
+            echo "Signing $pkg ..."
+            cosign sign-blob \
+              --yes \
+              --key env://COSIGN_PRIVATE_KEY \
+              "$pkg" \
+              --output-signature "${pkg}.sig"
+            echo "✅ Signed: ${pkg}.sig"
+            count=$((count + 1))
+          done
+          echo "Signed $count package(s)"
+
+      - name: Upload signatures and public key
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.artifact-name }}
+          path: |
+            ${{ inputs.packages-path }}/*.sig
+            ${{ inputs.public-key-path }}
+          retention-days: ${{ inputs.artifact-retention-days }}
