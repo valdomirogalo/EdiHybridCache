@@ -303,7 +303,7 @@ BenchmarkDotNet v0.14.0, .NET 10.0.12, AMD Ryzen 7 5700U
 - **RemoveAsync / InvalidateLocal allocations unchanged** (2.4 KB / 1.5 KB) — the cache hot path is untouched by the Pub/Sub swap
 - **SetAsync 10KB + compress** at 11.9 KB allocated (no extra `MemoryStream` copy in `TryDecompress`)
 
-**De-para — paired re-run (v0.5.6 vs v1.0.0 on the same machine, .NET 10.0.12):**
+**Before / after — paired re-run (v0.5.6 vs v1.0.0 on the same machine, .NET 10.0.12):**
 
 | Method | v0.5.6 (RabbitMQ) | v1.0.0 (Redis Pub/Sub) | Allocated (both) |
 |--------|-------------------|------------------------|------------------|
@@ -333,7 +333,7 @@ runs: 18,964 / 17,522 / 20,081 req/s
 
 **Test scenario:** Set → Get(L1) → InvalidateLocal → Get(L2) → Remove → Get(Miss) (6 requests/iteration)
 
-### De-para — paired re-run (3 runs each, same machine, .NET 10.0.12)
+### Before / after — paired re-run (3 runs each, same machine, .NET 10.0.12)
 
 | Metric (median of 3, 5,000 VUs) | 0.5.6 (RabbitMQ) | 1.0.0 (Redis Pub/Sub) |
 |---------------------------------|-------------------|------------------------|
