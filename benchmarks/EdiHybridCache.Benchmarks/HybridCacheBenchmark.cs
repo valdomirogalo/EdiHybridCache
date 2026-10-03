@@ -217,6 +217,10 @@ public class HybridCacheBenchmark
 
     private const long _timestamp = 1_700_000_000L;
 
+    private static readonly byte[] _invalidationPayload =
+        System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new InvalidationMessage { Key = "invalidation-key", Timestamp = _timestamp });
+
     // Same strategy as RedisInvalidationPublisher: serialize once to UTF-8 bytes.
     [Benchmark(Description = "Invalidation payload (single alloc)")]
     public byte[] InvalidationPayload_SingleAlloc() =>
@@ -229,6 +233,17 @@ public class HybridCacheBenchmark
         System.Text.Encoding.UTF8.GetBytes(
             System.Text.Json.JsonSerializer.Serialize(
                 new InvalidationMessage { Key = "invalidation-key", Timestamp = _timestamp }));
+
+    // Same strategy as RedisInvalidationSubscriber: deserialize straight from the UTF-8 bytes.
+    [Benchmark(Description = "Invalidation deserialize (single alloc)")]
+    public object? InvalidationDeserialize_SingleAlloc() =>
+        System.Text.Json.JsonSerializer.Deserialize<InvalidationMessage>(_invalidationPayload);
+
+    // Anti-pattern kept for contrast: materialize a string first, then deserialize from it.
+    [Benchmark(Description = "Invalidation deserialize (double alloc)")]
+    public object? InvalidationDeserialize_DoubleAlloc() =>
+        System.Text.Json.JsonSerializer.Deserialize<InvalidationMessage>(
+            System.Text.Encoding.UTF8.GetString(_invalidationPayload));
 
     private const string _testValue = "benchmark-value";
 

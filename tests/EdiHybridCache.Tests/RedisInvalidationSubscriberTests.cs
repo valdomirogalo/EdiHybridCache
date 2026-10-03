@@ -84,6 +84,17 @@ public class RedisInvalidationSubscriberTests : TestBase
             Times.Once);
     }
 
+    [Fact]
+    public void RedisValue_FromUtf8Bytes_ShouldNotCopyOnCast()
+    {
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(new { Key = "remote-key", Timestamp = 1L });
+
+        RedisValue value = bytes;
+        var roundtrip = (byte[]?)value;
+
+        ReferenceEquals(bytes, roundtrip).Should().BeTrue();
+    }
+
     private sealed class HandlerHolder
     {
         public Action<RedisChannel, RedisValue>? Handler { get; set; }

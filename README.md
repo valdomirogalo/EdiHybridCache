@@ -29,8 +29,8 @@
 
 | Metric | Value | Proof |
 |--------|-------|-------|
-| **GetAsync L1 Hit** | **106 ns**, 72 B allocated | [Benchmark](#-benchmark-results) |
-| **SetAsync (100B)** | **6.08 μs**, 1.6 KB allocated | [Benchmark](#-benchmark-results) |
+| **GetAsync L1 Hit** | **98 ns**, 72 B allocated | [Benchmark](#-benchmark-results) |
+| **SetAsync (100B)** | **5.86 μs**, 1.6 KB allocated | [Benchmark](#-benchmark-results) |
 | **PublishInvalidationAsync** | **1.78 μs**, 640 B allocated | [Benchmark](#-benchmark-results) |
 | **Throughput (standalone)** | **18,964 req/s** @ 5,000 VUs | [k6 Load Test](#-k6-load-test) |
 | **Failures** | **0.00%** @ 1.33M requests | [k6 Load Test](#-k6-load-test) |
@@ -274,32 +274,35 @@ if (cache is HybridCache hc)
 
 ```
 BenchmarkDotNet v0.14.0, .NET 10.0.12, AMD Ryzen 7 5700U
-12 benchmarks, 2 warmup, 5 iterations each
+14 benchmarks, 2 warmup, 5 iterations each
 ```
 
 | Method | Mean | Gen0 | Gen1 | Allocated |
 |--------|------|------|------|-----------|
-| **GetAsync L1 Hit** | **106.0 ns** | 0.03 | — | **72 B** |
-| GetAsync L2 Hit | 706.4 μs | 11.72 | 10.74 | 25.4 KB |
-| GetAsync L2 Miss | 733.5 μs | 3.91 | 2.93 | 26.4 KB |
-| **SetAsync 100B** | **6.08 μs** | 0.26 | 0.08 | **1.6 KB** |
-| SetAsync 10KB | 13.68 μs | 1.83 | 0.92 | 11.5 KB |
-| SetAsync 200KB (LOH) | 111.7 μs | 0.12 | — | 201.5 KB |
-| SetAsync 10KB + compress | 20.05 μs | 3.85 | 0.98 | 11.9 KB |
-| RemoveAsync | 6.66 μs | 0.37 | 0.11 | 2.4 KB |
-| InvalidateLocal | 4.67 μs | 0.24 | 0.07 | 1.5 KB |
+| **GetAsync L1 Hit** | **98.4 ns** | 0.03 | — | **72 B** |
+| GetAsync L2 Hit | 802.6 μs | 11.72 | 10.74 | 25.4 KB |
+| GetAsync L2 Miss | 731.8 μs | 3.91 | 2.93 | 26.4 KB |
+| **SetAsync 100B** | **5.86 μs** | 0.26 | 0.08 | **1.6 KB** |
+| SetAsync 10KB | 13.62 μs | 1.83 | 0.92 | 11.5 KB |
+| SetAsync 200KB (LOH) | 104.5 μs | — | — | 201.5 KB |
+| SetAsync 10KB + compress | 19.74 μs | 3.85 | 0.98 | 11.9 KB |
+| RemoveAsync | 6.54 μs | 0.37 | 0.11 | 2.4 KB |
+| InvalidateLocal | 4.64 μs | 0.24 | 0.07 | 1.5 KB |
 | **PublishInvalidationAsync (Redis Pub/Sub)** | **1.78 μs** | 0.10 | 0.03 | **640 B** |
 
-**Invalidation payload — single vs double allocation:**
+**Single vs double allocation — publish and receive paths:**
 
-| Payload strategy | Mean | Allocated |
-|------------------|------|-----------|
-| **Single alloc** (published as UTF-8 bytes) | **175.4 ns** | **112 B** |
-| Double alloc (string round-trip, anti-pattern) | 242.8 ns | 232 B |
+| Strategy | Mean | Allocated |
+|----------|------|-----------|
+| Publish payload — **single alloc** (serialize once to UTF-8 bytes) | **176.9 ns** | **112 B** |
+| Publish payload — double alloc (string round-trip, anti-pattern) | 237.0 ns | 232 B |
+| Deserialize — **single alloc** (read straight from the raw bytes) | **246.9 ns** | **88 B** |
+| Deserialize — double alloc (string round-trip, anti-pattern) | 317.3 ns | 208 B |
 
 **Key takeaways:**
-- **PublishInvalidationAsync in 1.78 μs, 640 B** — the event is serialized **once** to UTF-8 bytes and published as a `RedisValue`; the double-allocation anti-pattern allocates **2×** the payload (+120 B / +107%) and is ~38% slower
-- **GetAsync L1 Hit in 106 ns, 72 B allocated** — zero-allocation fast path via synchronous lock acquisition
+- **PublishInvalidationAsync in 1.78 μs, 640 B** — serialized **once** to UTF-8 bytes and published as a `RedisValue`; the string round-trip anti-pattern would allocate **2×** the payload (232 B vs 112 B, +107 %)
+- **Receive path allocates once too** — `JsonSerializer.Deserialize((byte[])value)` reads straight from the raw bytes; a string round-trip would allocate 208 B vs 88 B (+136 %). A unit test asserts the `(byte[])RedisValue` cast is zero-copy (`ReferenceEquals`)
+- **GetAsync L1 Hit in 98 ns, 72 B allocated** — zero-allocation fast path via synchronous lock acquisition
 - **RemoveAsync / InvalidateLocal allocations unchanged** (2.4 KB / 1.5 KB) — the cache hot path is untouched by the Pub/Sub swap
 - **SetAsync 10KB + compress** at 11.9 KB allocated (no extra `MemoryStream` copy in `TryDecompress`)
 
