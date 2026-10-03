@@ -95,6 +95,42 @@ public class RedisInvalidationSubscriberTests : TestBase
         ReferenceEquals(bytes, roundtrip).Should().BeTrue();
     }
 
+    [Fact]
+    public async Task PublisherToSubscriber_ShouldInvalidateFromRawUtf8Bytes()
+    {
+        Options.InvalidationChannel = "roundtrip.channel";
+
+        RedisValue captured = default;
+        Action<RedisChannel, RedisValue>? handler = null;
+        var busMock = new Mock<ISubscriber>();
+        busMock
+            .Setup(s => s.PublishAsync(It.IsAny<RedisChannel>(), It.IsAny<RedisValue>(), It.IsAny<CommandFlags>()))
+            .Callback<RedisChannel, RedisValue, CommandFlags>((channel, value, flags) => captured = value)
+            .ReturnsAsync(1L);
+        busMock
+            .Setup(s => s.SubscribeAsync(It.IsAny<RedisChannel>(), It.IsAny<Action<RedisChannel, RedisValue>>(), It.IsAny<CommandFlags>()))
+            .Callback<RedisChannel, Action<RedisChannel, RedisValue>, CommandFlags>((channel, h, flags) => handler = h)
+            .Returns(Task.CompletedTask);
+        RedisMock.Setup(x => x.GetSubscriber(It.IsAny<object>())).Returns(busMock.Object);
+
+        var publisher = new RedisInvalidationPublisher(
+            RedisMock.Object, new OptionsWrapper<HybridCacheOptions>(Options), NullLogger<RedisInvalidationPublisher>.Instance);
+        var subscriber = new RedisInvalidationSubscriber(
+            Provider, RedisMock.Object, new OptionsWrapper<HybridCacheOptions>(Options), NullLogger<RedisInvalidationSubscriber>.Instance);
+
+        await Cache.SetAsync("roundtrip-key", "value");
+        await subscriber.StartAsync();
+
+        // The publisher emits raw UTF-8 bytes...
+        await publisher.PublishInvalidationAsync("roundtrip-key");
+        ((byte[]?)captured).Should().NotBeNull();
+
+        // ...and the subscriber consumes those exact bytes (no string round-trip).
+        handler!(RedisChannel.Literal("roundtrip.channel"), captured);
+
+        Provider.GetRequiredService<IMemoryCache>().TryGetValue("roundtrip-key", out string? _).Should().BeFalse();
+    }
+
     private sealed class HandlerHolder
     {
         public Action<RedisChannel, RedisValue>? Handler { get; set; }

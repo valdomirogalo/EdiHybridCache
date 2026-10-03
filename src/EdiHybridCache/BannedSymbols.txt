@@ -1,0 +1,22 @@
+# ─────────────────────────────────────────────────────────────────────
+#  Banned APIs for EdiHybridCache (Microsoft.CodeAnalysis.BannedApiAnalyzers)
+#
+#  Goal: prevent string <-> byte round-trips (double allocation) on the
+#  cache / invalidation paths. Serialize and deserialize directly with
+#  UTF-8 bytes:
+#     - JsonSerializer.SerializeToUtf8Bytes(...)
+#     - JsonSerializer.Deserialize<T>(ReadOnlySpan<byte>, ...)
+#
+#  Format: <documentation comment ID>[;<message>]   (# starts a comment)
+# ─────────────────────────────────────────────────────────────────────
+
+# System.Text.Encoding enables Encoding.UTF8.GetString/GetBytes round-trips.
+T:System.Text.Encoding;Use UTF-8 byte APIs directly (SerializeToUtf8Bytes / Deserialize(ReadOnlySpan<byte>)). Avoid Encoding.UTF8 string round-trips.
+
+# String-based JSON serialization overloads (produce a string, then bytes).
+M:System.Text.Json.JsonSerializer.Serialize``1(``0,System.Text.Json.JsonSerializerOptions);Use SerializeToUtf8Bytes instead of a string round-trip.
+M:System.Text.Json.JsonSerializer.Serialize(System.Object,System.Type,System.Text.Json.JsonSerializerOptions);Use SerializeToUtf8Bytes instead of a string round-trip.
+
+# String-based JSON deserialization overloads (require materializing a string).
+M:System.Text.Json.JsonSerializer.Deserialize``1(System.String,System.Text.Json.JsonSerializerOptions);Deserialize from ReadOnlySpan<byte> instead of a string.
+M:System.Text.Json.JsonSerializer.Deserialize(System.String,System.Type,System.Text.Json.JsonSerializerOptions);Deserialize from ReadOnlySpan<byte> instead of a string.

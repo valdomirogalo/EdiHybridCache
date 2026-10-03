@@ -38,3 +38,6 @@ dotnet_diagnostic.CA1852.severity = none
 dotnet_diagnostic.CA1873.severity = none
 dotnet_diagnostic.CA2007.severity = none
 dotnet_diagnostic.CA2213.severity = none
+
+# Banned APIs (Microsoft.CodeAnalysis.BannedApiAnalyzers) — prevent string<->byte round-trips
+dotnet_diagnostic.RS0030.severity = error

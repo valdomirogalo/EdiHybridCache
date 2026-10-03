@@ -306,6 +306,8 @@ BenchmarkDotNet v0.14.0, .NET 10.0.12, AMD Ryzen 7 5700U
 - **RemoveAsync / InvalidateLocal allocations unchanged** (2.4 KB / 1.5 KB) — the cache hot path is untouched by the Pub/Sub swap
 - **SetAsync 10KB + compress** at 11.9 KB allocated (no extra `MemoryStream` copy in `TryDecompress`)
 
+> **Prevented at build time:** the library references `Microsoft.CodeAnalysis.BannedApiAnalyzers` with a `BannedSymbols.txt` rule set (`RS0030` = error). It bans `System.Text.Encoding` and the string-based `JsonSerializer` overloads, so a string round-trip can no longer be introduced on the cache/invalidation paths — the build fails instead.
+
 **Before / after — paired re-run (v0.5.6 vs v1.0.0 on the same machine, .NET 10.0.12):**
 
 | Method | v0.5.6 (RabbitMQ) | v1.0.0 (Redis Pub/Sub) | Allocated (both) |
