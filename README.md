@@ -303,7 +303,22 @@ BenchmarkDotNet v0.14.0, .NET 10.0.12, AMD Ryzen 7 5700U
 - **RemoveAsync / InvalidateLocal allocations unchanged** (2.4 KB / 1.5 KB) — the cache hot path is untouched by the Pub/Sub swap
 - **SetAsync 10KB + compress** at 11.9 KB allocated (no extra `MemoryStream` copy in `TryDecompress`)
 
-> The v0.5.6 baseline report was captured on .NET 10.0.9 under heavier machine load, so absolute timing deltas are environment/SDK-driven; **allocations** are the comparable metric — and they are unchanged for the shared cache paths.
+**De-para — paired re-run (v0.5.6 vs v1.0.0 on the same machine, .NET 10.0.12):**
+
+| Method | v0.5.6 (RabbitMQ) | v1.0.0 (Redis Pub/Sub) | Allocated (both) |
+|--------|-------------------|------------------------|------------------|
+| GetAsync L1 Hit | 99.1 ns | 106.0 ns | 72 B |
+| GetAsync L2 Hit | 701.2 μs | 706.4 μs | 25.4 KB |
+| GetAsync L2 Miss | 732.2 μs | 733.5 μs | 26.4 KB |
+| SetAsync 100B | 6.28 μs | 6.08 μs | 1.6 KB |
+| SetAsync 10KB | 14.38 μs | 13.68 μs | 11.5 KB |
+| SetAsync 200KB (LOH) | 108.6 μs | 111.7 μs | 201.5 KB |
+| SetAsync 10KB + compress | 22.08 μs | 20.05 μs | 11.9 KB |
+| RemoveAsync | 6.79 μs | 6.66 μs | 2.4 KB |
+| InvalidateLocal | 4.82 μs | 4.67 μs | 1.5 KB |
+| PublishInvalidationAsync (Redis Pub/Sub) | — | 1.78 μs | 640 B |
+
+> The v0.5.6 baseline was **re-run on the same machine and .NET SDK (10.0.12)** as v1.0.0. Every cache hot path is equivalent within run-to-run noise and **allocations are identical** — the Pub/Sub swap only replaces the invalidation publish path (previously RabbitMQ, not micro-benchmarked).
 
 ---
 
@@ -312,42 +327,31 @@ BenchmarkDotNet v0.14.0, .NET 10.0.12, AMD Ryzen 7 5700U
 ### v1.0.0 — Standalone (Redis Pub/Sub invalidation)
 
 ```
-18,964 req/s · 0% failure · p(95) = 108 ms · 5,000 VUs
-1,329,318 total requests, 1,772,424 checks passed ✅
+median of 3 runs: 18,964 req/s · 0% failure · p(95) = 108 ms · 5,000 VUs
+runs: 18,964 / 17,522 / 20,081 req/s
 ```
 
 **Test scenario:** Set → Get(L1) → InvalidateLocal → Get(L2) → Remove → Get(Miss) (6 requests/iteration)
 
-| Metric | v1.0.0 (Redis Pub/Sub) |
-|--------|------------------------|
-| **Peak throughput** | **18,964 req/s** |
-| **Avg latency** | **36.1 ms** |
-| **p(95) latency** | **108 ms** ✅ (< 2000 ms) |
-| **HTTP failures** | **0.00%** (0 of 1,329,318) |
-| **Total requests** | 1,329,318 |
-| **Total checks** | 1,772,424 ✓ (100%) |
-| **L1 hit rate** | 100% |
-| **L2 hit rate** | 100% |
-| **RemoveAsync p(95)** | 141 ms |
+### De-para — paired re-run (3 runs each, same machine, .NET 10.0.12)
 
-### De-para: 0.5.6 (RabbitMQ) → 1.0.0 (Redis Pub/Sub)
-
-| Metric | 0.5.6 (RabbitMQ) | 1.0.0 (Redis Pub/Sub) |
-|--------|-------------------|-----------------------|
-| **Peak throughput** | 15,164 req/s | **18,964 req/s** 🔥 |
-| **Avg latency** | 78 ms | **36.1 ms** |
-| **p(95) latency** | 226 ms | **108 ms** ✅ |
-| **HTTP failures** | 0.00% | **0.00%** |
-| **Total requests** | 1,289,184 | 1,329,318 |
-| **Total checks** | 1,718,912 | 1,772,424 |
+| Metric (median of 3, 5,000 VUs) | 0.5.6 (RabbitMQ) | 1.0.0 (Redis Pub/Sub) |
+|---------------------------------|-------------------|------------------------|
+| **Peak throughput** | 18,300 req/s | **18,964 req/s** |
+| **Avg latency** | 38.4 ms | **36.1 ms** |
+| **p(95) latency** | 106.2 ms | 107.9 ms |
+| **HTTP failures** | **0.00%** | **0.00%** |
 | **L1 / L2 hit rate** | 100% | 100% |
+| Throughput runs | 18,300 / 17,298 / 18,798 | 18,964 / 17,522 / 20,081 |
+
+> Both versions sit at **~18k req/s** with overlapping run-to-run ranges, **0.00% failures** and p(95) ~100–115 ms. The RabbitMQ → Redis Pub/Sub swap is **throughput/latency-neutral**; Redis simply drops the extra broker and reuses the L2 connection.
 
 ### Status Final
 
 | Metric | Status      |
 |--------|-------------|
-| **Standalone throughput** | **18,964 req/s** 🔥 |
-| **p(95) latency** | **108 ms** ✅ |
+| **Standalone throughput** | **~18,964 req/s** 🔥 |
+| **p(95) latency** | **~108 ms** ✅ |
 | **Failures** | **0.00%** |
 | **p(95) < 2s threshold** | **✅ Passed** |
 | **Memory usage** | **~200 MB** 📉 |
