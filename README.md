@@ -3,7 +3,7 @@
 **The .NET Hybrid Cache Library — Blazing Fast, Battle-Tested, Enterprise-Ready**
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4)](https://dotnet.microsoft.com/)
-[![Coverage](https://img.shields.io/badge/coverage-90.57%25-brightgreen)](https://github.com/valdomiro/EdiHybridCache)
+[![Coverage](https://img.shields.io/badge/coverage-91.11%25-brightgreen)](https://github.com/valdomiro/EdiHybridCache)
 [![Build](https://img.shields.io/badge/build-passing-brightgreen)]()
 [![Publish NuGet Package](https://github.com/valdomirogalo/EdiHybridCache/actions/workflows/publish.yml/badge.svg)](https://github.com/valdomirogalo/EdiHybridCache/actions/workflows/publish.yml)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -17,7 +17,7 @@
 
 - ⚡ **L1**: `IMemoryCache` — microsecond reads, zero network
 - 📡 **L2**: Redis — shared across instances, persistent
-- 🧠 **Event-driven invalidation**: RabbitMQ fanout — invalidate all L1s instantly
+- 🧠 **Event-driven invalidation**: Redis Pub/Sub — invalidate all L1s instantly
 - 🛡️ **Anti-stampede**: Per-key async locking — only one request hits Redis
 - 🔁 **Resilience**: Polly retries with exponential backoff + jitter
 - 📦 **Compression**: GZip for large values
@@ -29,12 +29,12 @@
 
 | Metric | Value | Proof |
 |--------|-------|-------|
-| **GetAsync L1 Hit** | **2.23 μs**, 72 B allocated | [Benchmark](#-benchmark-results) |
-| **SetAsync (100B)** | **55.0 μs**, 1.7 KB allocated | [Benchmark](#-benchmark-results) |
-| **Throughput (standalone)** | **15,164 req/s** @ 5,000 VUs | [k6 Load Test](#-k6-load-test) |
-| **Throughput (Aspire)** | **14,063 req/s** @ 5,000 VUs | [k6 Load Test](#-k6-load-test) |
-| **Failures** | **0.00%** @ 2.5M requests | [k6 Load Test](#-k6-load-test) |
-| **Code Coverage** | **90.57% line**, 83.33% branch | [Coverage](#-code-coverage) |
+| **GetAsync L1 Hit** | **106 ns**, 72 B allocated | [Benchmark](#-benchmark-results) |
+| **SetAsync (100B)** | **6.08 μs**, 1.6 KB allocated | [Benchmark](#-benchmark-results) |
+| **PublishInvalidationAsync** | **1.78 μs**, 640 B allocated | [Benchmark](#-benchmark-results) |
+| **Throughput (standalone)** | **18,964 req/s** @ 5,000 VUs | [k6 Load Test](#-k6-load-test) |
+| **Failures** | **0.00%** @ 1.33M requests | [k6 Load Test](#-k6-load-test) |
+| **Code Coverage** | **91.11% line**, 87.87% branch | [Coverage](#-code-coverage) |
 | **CRAP Score** | Reduced up to **69%** | [Complexity](#-code-quality--complexity) |
 
 ---
@@ -84,7 +84,7 @@ builder.Services.AddEdiHybridCache(builder.Configuration);
 {
   "EdiHybridCache": {
     "RedisConnectionString": "localhost:6379",
-    "RabbitMqHost": "localhost",
+    "InvalidationChannel": "edi.cache.invalidation",
     "L1TtlSeconds": 300,
     "DefaultL2TtlSeconds": 3600,
     "EnableCompression": true
@@ -151,11 +151,14 @@ using (var scope = app.Services.CreateScope())
        │                    │                    │
        └──────────┬─────────┴──────────┬─────────┘
                   │                    │
-          ┌───────▼───────┐    ┌───────▼───────┐
-          │   RabbitMQ    │    │   RabbitMQ    │
-          │  Exchange     │    │  Queue (each  │
-          │  (Fanout)     │───▶│   instance)   │
-          └───────────────┘    └───────────────┘
+                  └──────────┬─────────┘
+                             │
+                    ┌────────▼────────┐
+                    │  Redis Pub/Sub  │
+                    │  Channel        │
+                    │ (each instance  │
+                    │  subscribed)    │
+                    └─────────────────┘
 ```
 
 ### L1 — In-Process Memory
@@ -174,10 +177,10 @@ using (var scope = app.Services.CreateScope())
 
 ### Event-Driven Invalidation
 
-- **Provider**: RabbitMQ fanout exchange
+- **Provider**: Redis Pub/Sub channel
 - **Flow**: `RemoveAsync` → publish event → all subscribers receive → each clears its L1
-- **Graceful degradation**: If RabbitMQ is unavailable, invalidation events are skipped with a warning
-- **Durable**: Messages are persistent; queues are auto-deleted per instance
+- **Graceful degradation**: If Redis is unavailable, invalidation events are skipped with a warning
+- **Delivery**: Fire-and-forget (at-most-once) — instances not subscribed at publish time do not receive the event; stale L1 entries still expire via TTL
 
 ---
 
@@ -228,7 +231,7 @@ Removes a value from the cache and notifies other instances.
 **Behavior:**
 1. Remove from L1 (memory)
 2. Delete from L2 (Redis) with Polly retry
-3. Publish invalidation event via RabbitMQ (best-effort)
+3. Publish invalidation event via Redis Pub/Sub (best-effort)
 
 ```csharp
 await cache.RemoveAsync("user:42");
@@ -260,7 +263,7 @@ if (cache is HybridCache hc)
 | **CWE-409** | 7.5 | ZIP Bomb — decompression bomb | ✅ **Hard cap** at 100 MB, detection via leftover bytes |
 | **CWE-502** | 6.5 | Deserialization injection | ✅ **Type-safe** `System.Text.Json` + `where T : class` + exception logging |
 | **CWE-754** | 7.5 | Deadlock from `.GetAwaiter().GetResult()` | ✅ **Async lazy init** — no blocking in constructors |
-| **CWE-295** | 7.4 | Missing SSL/TLS for RabbitMQ | ✅ **Configurable** via `RabbitMqUseSsl`, `RabbitMqSslServerName`, `RabbitMqSslCertificatePath` |
+| **CWE-295** | 7.4 | Missing SSL/TLS for cache backends | ✅ **Redis TLS** via the `RedisConnectionString` (`ssl=true`, as used by the Aspire AppHost) |
 | **CWE-770** | 5.3 | Unbounded resource allocation | ✅ **Size limits** — max key length (512), max value size (100 MB) |
 | **CWE-312** | 5.9 | Cleartext secrets in memory | ⚠️ **Documented** — operate on trusted network, HMAC/add encryption if needed |
 | **CWE-117** | 3.1 | Log injection | ✅ **Structured logging** via `LoggerMessage.Define` — no string interpolation in logs |
@@ -270,66 +273,81 @@ if (cache is HybridCache hc)
 ## 📈 Benchmark Results
 
 ```
-BenchmarkDotNet v0.14.0, .NET 10.0.9, AMD Ryzen 7 5700U
-9 benchmarks, 2 warmup, 5 iterations each
+BenchmarkDotNet v0.14.0, .NET 10.0.12, AMD Ryzen 7 5700U
+12 benchmarks, 2 warmup, 5 iterations each
 ```
 
 | Method | Mean | Gen0 | Gen1 | Allocated |
 |--------|------|------|------|-----------|
-| **GetAsync L1 Hit** | **2.23 μs** | 0.03 | — | **72 B** |
-| **GetAsync L2 Hit** | 6,699 μs | — | — | 25.2 KB |
-| **GetAsync L2 Miss** | 6,614 μs | — | — | 26.3 KB |
-| **SetAsync 100B** | **55.0 μs** | 0.24 | — | **1.7 KB** |
-| **SetAsync 10KB** | 29.7 μs | 1.71 | 0.73 | 11.5 KB |
-| **SetAsync 200KB (LOH)** | 244 μs | — | — | 201.8 KB |
-| **SetAsync 10KB + compress** | **22.5 μs** | 3.97 | 1.19 | **11.9 KB** 📉 |
-| **RemoveAsync** | 9.30 μs | 0.37 | 0.11 | 2.4 KB |
-| **InvalidateLocal** | **7.34 μs** | 0.24 | 0.06 | 1.5 KB |
+| **GetAsync L1 Hit** | **106.0 ns** | 0.03 | — | **72 B** |
+| GetAsync L2 Hit | 706.4 μs | 11.72 | 10.74 | 25.4 KB |
+| GetAsync L2 Miss | 733.5 μs | 3.91 | 2.93 | 26.4 KB |
+| **SetAsync 100B** | **6.08 μs** | 0.26 | 0.08 | **1.6 KB** |
+| SetAsync 10KB | 13.68 μs | 1.83 | 0.92 | 11.5 KB |
+| SetAsync 200KB (LOH) | 111.7 μs | 0.12 | — | 201.5 KB |
+| SetAsync 10KB + compress | 20.05 μs | 3.85 | 0.98 | 11.9 KB |
+| RemoveAsync | 6.66 μs | 0.37 | 0.11 | 2.4 KB |
+| InvalidateLocal | 4.67 μs | 0.24 | 0.07 | 1.5 KB |
+| **PublishInvalidationAsync (Redis Pub/Sub)** | **1.78 μs** | 0.10 | 0.03 | **640 B** |
+
+**Invalidation payload — single vs double allocation:**
+
+| Payload strategy | Mean | Allocated |
+|------------------|------|-----------|
+| **Single alloc** (published as UTF-8 bytes) | **175.4 ns** | **112 B** |
+| Double alloc (string round-trip, anti-pattern) | 242.8 ns | 232 B |
 
 **Key takeaways:**
-- **GetAsync L1 Hit in 2.23 μs, 72 B allocated** — Zero-allocation fast path via synchronous lock acquisition
-- **SetAsync 10KB + compress: 45% less allocations** (22 KB → 11.9 KB) after removing extra `MemoryStream` copy in `TryDecompress`
-- **Zero LOH allocations** on hot paths — `ArrayPool<byte>` + `struct Releaser` + `ReadOnlySpan`
-- **LoggerMessage.Define** eliminated `params object[]` allocation, saving ~32 B per hot log call
+- **PublishInvalidationAsync in 1.78 μs, 640 B** — the event is serialized **once** to UTF-8 bytes and published as a `RedisValue`; the double-allocation anti-pattern allocates **2×** the payload (+120 B / +107%) and is ~38% slower
+- **GetAsync L1 Hit in 106 ns, 72 B allocated** — zero-allocation fast path via synchronous lock acquisition
+- **RemoveAsync / InvalidateLocal allocations unchanged** (2.4 KB / 1.5 KB) — the cache hot path is untouched by the Pub/Sub swap
+- **SetAsync 10KB + compress** at 11.9 KB allocated (no extra `MemoryStream` copy in `TryDecompress`)
+
+> The v0.5.6 baseline report was captured on .NET 10.0.9 under heavier machine load, so absolute timing deltas are environment/SDK-driven; **allocations** are the comparable metric — and they are unchanged for the shared cache paths.
 
 ---
 
 ## 🧪 k6 Load Test
 
-### Standalone (direct Redis connection)
+### v1.0.0 — Standalone (Redis Pub/Sub invalidation)
 
 ```
-15,164 req/s · 0% failure · p(95) = 226 ms · 5,000 VUs
-1,289,184 total requests, 1,718,912 checks passed ✅
-```
-
-### Aspire AppHost (with DCP proxy)
-
-```
-14,063 req/s · 0% failure · p(95) = 225 ms · 5,000 VUs
-1,195,692 total requests, 1,594,256 checks passed ✅
+18,964 req/s · 0% failure · p(95) = 108 ms · 5,000 VUs
+1,329,318 total requests, 1,772,424 checks passed ✅
 ```
 
 **Test scenario:** Set → Get(L1) → InvalidateLocal → Get(L2) → Remove → Get(Miss) (6 requests/iteration)
 
-| Metric | Standalone | Aspire AppHost |
-|--------|-----------|----------------|
-| **Peak throughput** | **15,164 req/s** | **14,063 req/s** |
-| **Avg latency** | **78 ms** | **73 ms** |
-| **p(95) latency** | **226 ms** ✅ (< 2000ms) | **225 ms** ✅ (< 2000ms) |
-| **HTTP failures** | **0.00%** | **0.00%** |
-| **Total requests** | 1,289,184 | 1,195,692 |
-| **Total checks** | 1,718,912 ✓ | 1,594,256 ✓ |
-| **L1 hit rate** | 100% | 100% |
-| **L2 hit rate** | 100% | 100% |
+| Metric | v1.0.0 (Redis Pub/Sub) |
+|--------|------------------------|
+| **Peak throughput** | **18,964 req/s** |
+| **Avg latency** | **36.1 ms** |
+| **p(95) latency** | **108 ms** ✅ (< 2000 ms) |
+| **HTTP failures** | **0.00%** (0 of 1,329,318) |
+| **Total requests** | 1,329,318 |
+| **Total checks** | 1,772,424 ✓ (100%) |
+| **L1 hit rate** | 100% |
+| **L2 hit rate** | 100% |
+| **RemoveAsync p(95)** | 141 ms |
+
+### De-para: 0.5.6 (RabbitMQ) → 1.0.0 (Redis Pub/Sub)
+
+| Metric | 0.5.6 (RabbitMQ) | 1.0.0 (Redis Pub/Sub) |
+|--------|-------------------|-----------------------|
+| **Peak throughput** | 15,164 req/s | **18,964 req/s** 🔥 |
+| **Avg latency** | 78 ms | **36.1 ms** |
+| **p(95) latency** | 226 ms | **108 ms** ✅ |
+| **HTTP failures** | 0.00% | **0.00%** |
+| **Total requests** | 1,289,184 | 1,329,318 |
+| **Total checks** | 1,718,912 | 1,772,424 |
+| **L1 / L2 hit rate** | 100% | 100% |
 
 ### Status Final
 
 | Metric | Status      |
 |--------|-------------|
-| **Standalone throughput** | **15,164 req/s** 🔥 |
-| **Aspire throughput** | **14,063 req/s** 🔥 |
-| **p(95) latency** | **225 ms** ✅ |
+| **Standalone throughput** | **18,964 req/s** 🔥 |
+| **p(95) latency** | **108 ms** ✅ |
 | **Failures** | **0.00%** |
 | **p(95) < 2s threshold** | **✅ Passed** |
 | **Memory usage** | **~200 MB** 📉 |
@@ -340,21 +358,21 @@ BenchmarkDotNet v0.14.0, .NET 10.0.9, AMD Ryzen 7 5700U
 
 | Metric | Value |
 |--------|-------|
-| **Line Coverage** | **90.57%** |
-| **Branch Coverage** | **83.33%** |
-| **Lines covered** | 222 of 245 (excluding RabbitMQ classes) |
+| **Line Coverage** | **91.11%** |
+| **Branch Coverage** | **87.87%** |
+| **Lines covered** | 472 of 518 (including Redis Pub/Sub classes) |
 
 ### Per-Class Coverage
 
 | Class | Coverage |
 |-------|----------|
-| `HybridCache` | 100% |
+| `HybridCache` | 94.25% |
 | `HybridCacheOptions` | 100% |
-| `CompressionHelper` | 100% |
+| `CompressionHelper` | 85.53% |
 | `AsyncLock` | 100% |
-| `ServiceCollectionExtensions` | 97.87% |
-| `GetAsync` state machine | 97.29% |
-| RabbitMQ classes | `[ExcludeFromCodeCoverage]` (require infrastructure) |
+| `ServiceCollectionExtensions` | 73.02% |
+| `RedisInvalidationPublisher` | 92.31% line / 100% branch |
+| `RedisInvalidationSubscriber` | 81.25% line / 75% branch |
 
 ---
 
@@ -400,16 +418,10 @@ CRAP = (CC²) × (1 − coverage)³ + CC
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `REDIS_CONNECTION` | — | Redis connection string |
-| `RABBITMQ_HOST` | `localhost` | RabbitMQ host |
-| `RABBITMQ_PORT` | `5672` | RabbitMQ port |
-| `RABBITMQ_USERNAME` | `guest` | RabbitMQ username |
-| `RABBITMQ_PASSWORD` | `guest` | RabbitMQ password |
+| `INVALIDATION_CHANNEL` | `edi.cache.invalidation` | Redis Pub/Sub channel for L1 invalidation |
 | `L1_TTL_SECONDS` | `300` | L1 TTL (in-process memory) |
 | `DEFAULT_L2_TTL_SECONDS` | `3600` | Default L2 TTL (Redis) |
 | `L2_TTL_MULTIPLIER` | `1.5` | Minimum L2/L1 TTL ratio |
-| `RABBITMQ_USE_SSL` | `false` | Enable SSL/TLS for RabbitMQ |
-| `RABBITMQ_SSL_SERVER_NAME` | — | RabbitMQ SSL server name |
-| `RABBITMQ_SSL_CERT_PATH` | — | RabbitMQ SSL certificate path |
 
 ### appsettings.json Example
 
@@ -417,9 +429,7 @@ CRAP = (CC²) × (1 − coverage)³ + CC
 {
   "EdiHybridCache": {
     "RedisConnectionString": "localhost:6379",
-    "RabbitMqHost": "localhost",
-    "RabbitMqPort": 5672,
-    "RabbitMqUseSsl": false,
+    "InvalidationChannel": "edi.cache.invalidation",
     "L1TtlSeconds": 300,
     "DefaultL2TtlSeconds": 3600,
     "L2TtlMultiplier": 1.5,
@@ -433,19 +443,34 @@ CRAP = (CC²) × (1 − coverage)³ + CC
 
 ---
 
+## ⬆️ Migrating from 0.x (RabbitMQ) to 1.0.0
+
+Version **1.0.0** replaces the RabbitMQ invalidation backend with **Redis Pub/Sub**. This is a breaking change.
+
+| 0.x (RabbitMQ) | 1.0.0 (Redis Pub/Sub) |
+|----------------|-----------------------|
+| `RabbitMQ.Client` dependency | Reuses the `StackExchange.Redis` connection — no extra broker |
+| `RabbitMqHost` / `RabbitMqPort` / `RabbitMqUsername` / `RabbitMqPassword` | Removed — use `RedisConnectionString` |
+| `RabbitMqUseSsl` / `RabbitMqSslServerName` / `RabbitMqSslCertificatePath` | Removed — use Redis TLS (`ssl=true`) |
+| `InvalidationExchange` / `InvalidationQueueName` | `InvalidationChannel` (default `edi.cache.invalidation`) |
+| Env `RABBITMQ_*` | Env `INVALIDATION_CHANNEL` |
+| Durable queues (at-least-once) | Fire-and-forget Pub/Sub (at-most-once; L1 TTL still bounds staleness) |
+
+**Action required:** remove the RabbitMQ configuration keys from `appsettings.json` (optionally set `InvalidationChannel`) and stop provisioning a RabbitMQ broker. The `ICacheInvalidationPublisher` / `ICacheInvalidationSubscriber` interfaces and `UseEdiHybridCacheSubscriberAsync` are unchanged.
+
+---
+
 ## 🧰 How to Run
 
-### Docker (Redis + RabbitMQ)
+### Docker (Redis)
 
-Start the required infrastructure (Redis and RabbitMQ) with Docker Compose:
+Start the required infrastructure (Redis) with Docker Compose:
 
 ```bash
 docker-compose up -d
 ```
 
-This starts:
-- **Redis** on `localhost:6379`
-- **RabbitMQ** on `localhost:5672` (AMQP) and `localhost:15672` (Management UI — `guest`/`guest`)
+This starts **Redis** (L2 cache and Pub/Sub backend).
 
 ### Standalone
 
@@ -459,8 +484,8 @@ dotnet test tests/EdiHybridCache.Tests
 # Run benchmarks
 dotnet run -c Release --project benchmarks/EdiHybridCache.Benchmarks
 
-# Run the playground (Web API with Swagger) - requires Redis + RabbitMQ
-# (start docker-compose first, or have Redis + RabbitMQ running locally)
+# Run the playground (Web API with Swagger) - requires Redis
+# (start docker-compose first, or have Redis running locally)
 dotnet run --project playground/EdiHybridCache.Playground
 # Swagger UI: http://localhost:5000/swagger/index.html
 # API base URL: http://localhost:5000
@@ -471,13 +496,13 @@ k6 run k6-load-test.js
 
 ### With Aspire AppHost (recommended)
 
-The Aspire AppHost automatically provisions Redis and RabbitMQ containers, injects environment variables, and starts the Playground:
+The Aspire AppHost automatically provisions a Redis container, injects environment variables, and starts the Playground:
 
 ```bash
 dotnet run --project src/EdiHybridCache.AppHost/EdiHybridCache.AppHost.csproj
 ```
 
-The dashboard will be available at `https://localhost:XXXXX` (random port). Redis and RabbitMQ credentials are auto-generated — no manual configuration needed.
+The dashboard will be available at `https://localhost:XXXXX` (random port). Redis credentials are auto-generated — no manual configuration needed.
 
 ---
 
@@ -497,8 +522,8 @@ EdiHybridCache/
 │   │   └── Invalidation/
 │   │       ├── ICacheInvalidationPublisher.cs
 │   │       ├── ICacheInvalidationSubscriber.cs
-│   │       ├── RabbitMqInvalidationPublisher.cs
-│   │       └── RabbitMqInvalidationSubscriber.cs
+│   │       ├── RedisInvalidationPublisher.cs
+│   │       └── RedisInvalidationSubscriber.cs
 │   ├── Configuration/
 │   │   └── HybridCacheServiceCollectionExtensions.cs
 │   └── EdiHybridCache.csproj     # NuGet package
@@ -506,7 +531,7 @@ EdiHybridCache/
 │   ├── Program.cs               # AppHost entry point
 │   ├── AppHostConstants.cs      # Resource names & env vars
 │   └── EdiHybridCache.AppHost.csproj
-├── tests/                        # ✅ Unit tests (26/26 passing)
+├── tests/                        # ✅ Unit tests (78/78 passing)
 │   └── EdiHybridCache.Tests/
 ├── benchmarks/                   # ⚡ Performance benchmarks
 │   └── EdiHybridCache.Benchmarks/
@@ -539,8 +564,8 @@ using (await _asyncLock.LockAsync(key, cancellationToken))
 ## 🔁 Resilience
 
 - **Redis retries**: Automatic Polly retry policy (configurable count + exponential backoff + jitter)
-- **RabbitMQ retries**: Separate Polly retry policy for publisher; **background reconnection** with exponential backoff (1s → 60s max) for subscriber
-- **Graceful degradation**: If RabbitMQ is down, cache continues operating; invalidation events are skipped with a warning; subscriber retries in background
+- **Pub/Sub resilience**: StackExchange.Redis reconnects and re-subscribes the invalidation handler automatically after a connection drop
+- **Graceful degradation**: If Redis is down, cache continues operating; invalidation events are skipped with a warning
 - **Timeouts**: Configurable `RedisOperationTimeoutSeconds` (default: 5s)
 - **Connection tuning**: `AbortOnConnectFail=false`, `SyncTimeout=5s`, `KeepAlive=60s`, `ReconnectRetryPolicy` for StackExchange.Redis
 
@@ -553,7 +578,7 @@ using (await _asyncLock.LockAsync(key, cancellationToken))
 - **ZIP bomb protection**: Hard cap on decompression buffer doubling; leftover byte detection
 - **Cache poisoning prevention**: `TypeNameHandling` is not supported by `System.Text.Json`; `JsonException` is caught and logged with "Possible cache poisoning"
 - **Deadlock prevention**: No `.GetAwaiter().GetResult()` in constructors (CWE-754)
-- **SSL/TLS**: Configurable for RabbitMQ connections
+- **SSL/TLS**: Redis connections support TLS via the connection string (`ssl=true`)
 - **Log injection prevention**: Structured logging via `LoggerMessage.Define` — no `params object[]` on hot paths
 
 ---

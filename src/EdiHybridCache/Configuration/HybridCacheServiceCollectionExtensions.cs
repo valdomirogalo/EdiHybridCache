@@ -28,10 +28,7 @@ public static class HybridCacheServiceCollectionExtensions
         services.PostConfigure<HybridCacheOptions>(options =>
         {
             TryOverrideFromEnv(Constants.EnvRedisConnection, v => options.RedisConnectionString = v);
-            TryOverrideFromEnv(Constants.EnvRabbitMqHost, v => options.RabbitMqHost = v);
-            TryParseEnvInt(Constants.EnvRabbitMqPort, v => options.RabbitMqPort = v);
-            TryOverrideFromEnv(Constants.EnvRabbitMqUsername, v => options.RabbitMqUsername = v);
-            TryOverrideFromEnv(Constants.EnvRabbitMqPassword, v => options.RabbitMqPassword = v);
+            TryOverrideFromEnv(Constants.EnvInvalidationChannel, v => options.InvalidationChannel = v);
 
             TryParseEnvInt(Constants.EnvL1TtlSeconds, v => options.L1TtlSeconds = v);
             TryParseEnvInt(Constants.EnvDefaultL2TtlSeconds, v => options.DefaultL2TtlSeconds = v);
@@ -75,8 +72,8 @@ public static class HybridCacheServiceCollectionExtensions
             };
         });
         services.AddSingleton<IMemoryCache, MemoryCache>();
-        services.AddSingleton<ICacheInvalidationPublisher, RabbitMqInvalidationPublisher>();
-        services.AddSingleton<ICacheInvalidationSubscriber, RabbitMqInvalidationSubscriber>();
+        services.AddSingleton<ICacheInvalidationPublisher, RedisInvalidationPublisher>();
+        services.AddSingleton<ICacheInvalidationSubscriber, RedisInvalidationSubscriber>();
 
         // Singleton: HybridCache has no per-request state (key/value are method params).
         // All injected dependencies (IMemoryCache, IConnectionMultiplexer, etc.) are also

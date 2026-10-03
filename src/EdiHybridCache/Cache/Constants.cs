@@ -55,24 +55,16 @@ public static class Constants
     // ─────────────────────────────────────────────────────────────────
     //  Default Connection Values
     // ─────────────────────────────────────────────────────────────────
-    public const string DefaultRabbitMqHost = "localhost";
-    public const int DefaultRabbitMqPort = 5672;
-    public const string DefaultRabbitMqUsername = "guest";
-    public const string DefaultRabbitMqPassword = "guest";
-    public const string DefaultInvalidationExchange = "edi.cache.invalidation";
     public const string DefaultRedisConnectionString = "localhost:6379";
 
-    /// <summary>RabbitMQ heartbeat interval in seconds.</summary>
-    public const int RabbitMqHeartbeatSeconds = 30;
+    /// <summary>Default Redis Pub/Sub channel used for cross-instance L1 invalidation events.</summary>
+    public const string DefaultInvalidationChannel = "edi.cache.invalidation";
 
     // ─────────────────────────────────────────────────────────────────
     //  Environment Variable Names
     // ─────────────────────────────────────────────────────────────────
     public const string EnvRedisConnection = "REDIS_CONNECTION";
-    public const string EnvRabbitMqHost = "RABBITMQ_HOST";
-    public const string EnvRabbitMqPort = "RABBITMQ_PORT";
-    public const string EnvRabbitMqUsername = "RABBITMQ_USERNAME";
-    public const string EnvRabbitMqPassword = "RABBITMQ_PASSWORD";
+    public const string EnvInvalidationChannel = "INVALIDATION_CHANNEL";
     public const string EnvL1TtlSeconds = "L1_TTL_SECONDS";
     public const string EnvDefaultL2TtlSeconds = "DEFAULT_L2_TTL_SECONDS";
     public const string EnvL2TtlMultiplier = "L2_TTL_MULTIPLIER";
@@ -101,9 +93,6 @@ public static class Constants
 
     /// <summary>Resource name for Redis in the Aspire AppHost.</summary>
     public const string AspireRedisName = "redis";
-
-    /// <summary>Resource name for RabbitMQ in the Aspire AppHost.</summary>
-    public const string AspireRabbitMqName = "rabbitmq";
 
     /// <summary>Resource name for the Playground project in the Aspire AppHost.</summary>
     public const string AspirePlaygroundName = "playground";

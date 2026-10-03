@@ -7,17 +7,6 @@ services:
       - "6378:6379"
     restart: unless-stopped
 
-  rabbitmq:
-    image: rabbitmq:4.0-management-alpine
-    container_name: rabbitmq
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
-    restart: unless-stopped
-
   playground:
     build:
       context: .
@@ -28,9 +17,6 @@ services:
     environment:
       ASPNETCORE_URLS: http://+:5000
       ConnectionStrings__Redis: redis:6379
-      RabbitMQ__HostName: rabbitmq
-      RabbitMQ__UserName: guest
-      RabbitMQ__Password: guest
       ASPNETCORE_SHUTDOWNTIMEOUT: "30"
     ulimits:
       nofile:
@@ -47,5 +33,4 @@ services:
     restart: unless-stopped
     depends_on:
       - redis
-      - rabbitmq
     

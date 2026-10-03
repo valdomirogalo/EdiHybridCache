@@ -49,7 +49,7 @@ public sealed class CacheMetrics : IDisposable
 
         InvalidationsPublished = _meter.CreateCounter<long>(
             Constants.MetricInvalidationsPublished,
-            description: "Number of invalidation events published via RabbitMQ");
+            description: "Number of invalidation events published via Redis Pub/Sub");
 
         CurrentCacheSize = _meter.CreateObservableGauge<long>(
             Constants.MetricCacheSize,

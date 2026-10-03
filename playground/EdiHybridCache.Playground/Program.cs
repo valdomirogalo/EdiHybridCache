@@ -34,16 +34,16 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "EdiHybridCache API",
         Version = "v1",
-        Description = "Playground for EdiHybridCache — a hybrid L1 (memory) + L2 (Redis) caching library with RabbitMQ invalidation.\n\n" +
+        Description = "Playground for EdiHybridCache — a hybrid L1 (memory) + L2 (Redis) caching library with Redis Pub/Sub invalidation.\n\n" +
                       "## Cache Architecture\n" +
                       "- **L1**: `IMemoryCache` (in-process, fast, per-instance)\n" +
                       "- **L2**: Redis (shared across instances)\n" +
-                      "- **Invalidation**: RabbitMQ fanout exchange (remote L1 invalidation)\n\n" +
+                      "- **Invalidation**: Redis Pub/Sub channel (remote L1 invalidation)\n\n" +
                       "## Behavioral Notes\n" +
                       "- `SetAsync` always writes to L1 first, then L2 (Redis) asynchronously\n" +
                       "- `GetAsync` checks L1 → L2 with double-checked locking\n" +
                       "- TTL adjustment: if L2 TTL < L1 TTL × multiplier, it's raised to the minimum\n" +
-                      "- Remote invalidation is best-effort: if RabbitMQ is down, L1 operates independently"
+                      "- Remote invalidation is best-effort: if Redis Pub/Sub delivery fails, L1 operates independently"
     });
 });
 
@@ -58,28 +58,28 @@ builder.Services.AddEdiHybridCache(builder.Configuration);
 var app = builder.Build();
 
 // ──────────────────────────────────────────────
-//  RabbitMQ Subscriber Startup
+//  Redis Pub/Sub Subscriber Startup
 // ──────────────────────────────────────────────
 using (var scope = app.Services.CreateScope())
 {
     try
     {
-        // Timeout added after dump analysis: RabbitMQ startup could hang indefinitely,
+        // Timeout added after dump analysis: subscriber startup could hang indefinitely,
         // blocking the application startup. A 10-second timeout prevents this.
         using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         await scope.ServiceProvider.UseEdiHybridCacheSubscriberAsync(cts.Token);
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-        logger.LogInformation("RabbitMQ invalidation subscriber started successfully.");
+        logger.LogInformation("Redis Pub/Sub invalidation subscriber started successfully.");
     }
     catch (OperationCanceledException)
     {
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-        logger.LogWarning("RabbitMQ subscriber startup timed out. Cache will operate without remote invalidation.");
+        logger.LogWarning("Redis Pub/Sub subscriber startup timed out. Cache will operate without remote invalidation.");
     }
     catch (Exception ex)
     {
         var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-        logger.LogWarning(ex, "RabbitMQ subscriber failed to start. Cache will operate without remote invalidation.");
+        logger.LogWarning(ex, "Redis Pub/Sub subscriber failed to start. Cache will operate without remote invalidation.");
     }
 }
 
@@ -163,7 +163,7 @@ app.MapPost("/cache/{key}/default", async (
 //  Summary : Remove a value from cache and publish invalidation
 //  Method  : IHybridCache.RemoveAsync
 //  Cache   : L1 + L2 + invalidation event
-//  Notes   : Published invalidation is best-effort (RabbitMQ may be offline)
+//  Notes   : Published invalidation is best-effort (Redis may be unavailable)
 // ═══════════════════════════════════════════════════════════════════
 app.MapDelete("/cache/{key}", async (
     [Description("Cache key to remove")] string key,
@@ -175,7 +175,7 @@ app.MapDelete("/cache/{key}", async (
 .WithName("RemoveCachedValue")
 .WithSummary("Remove a cached value")
 .WithDescription("Removes the value from L1 (memory) and L2 (Redis), then publishes an invalidation event " +
-                 "via RabbitMQ so other instances can remove their L1 copy. If RabbitMQ is offline, " +
+                 "via Redis Pub/Sub so other instances can remove their L1 copy. If Redis is unavailable, " +
                  "the invalidation is skipped and a warning is logged.")
 .Produces(StatusCodes.Status204NoContent)
 ;
@@ -196,15 +196,15 @@ app.MapPost("/cache/invalidate/{key}", async (
 })
 .WithName("PublishInvalidation")
 .WithSummary("Publish cache invalidation event")
-.WithDescription("Sends an invalidation event via RabbitMQ without modifying the local cache. " +
-                 "Other instances subscribed to the invalidation exchange will remove their L1 copy. " +
+.WithDescription("Sends an invalidation event via Redis Pub/Sub without modifying the local cache. " +
+                 "Other instances subscribed to the invalidation channel will remove their L1 copy. " +
                  "This is useful when a value was written directly to Redis by another service.")
 .Produces(StatusCodes.Status200OK)
 ;
 
 // ═══════════════════════════════════════════════════════════════════
 //  POST /cache/invalidate-local/{key}
-//  Summary : Invalidate L1 (memory) only, without Redis or RabbitMQ
+//  Summary : Invalidate L1 (memory) only, without Redis or Pub/Sub
 //  Method  : HybridCache.InvalidateLocal (extension, not in IHybridCache)
 //  Cache   : L1 only
 //  Notes   : Synchronous operation, no network involved
@@ -222,7 +222,7 @@ app.MapPost("/cache/invalidate-local/{key}", (
 })
 .WithName("InvalidateLocal")
 .WithSummary("Invalidate L1 (memory) only")
-.WithDescription("Removes the value from L1 (in-process memory) only, without contacting Redis or RabbitMQ. " +
+.WithDescription("Removes the value from L1 (in-process memory) only, without contacting Redis. " +
                  "This is a synchronous operation with no network I/O. Requires the cache instance to be " +
                  "of type HybridCache (not available through the IHybridCache interface).")
 .Produces(StatusCodes.Status200OK)

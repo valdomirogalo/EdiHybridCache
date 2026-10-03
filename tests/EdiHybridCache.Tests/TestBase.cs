@@ -17,6 +17,7 @@ public abstract class TestBase
     protected Mock<IDatabase> RedisDbMock { get; }
     protected Mock<ICacheInvalidationPublisher> PublisherMock { get; }
     protected HybridCache Cache { get; }
+    protected ServiceProvider Provider { get; }
 
     public TestBase()
     {
@@ -44,8 +45,9 @@ public abstract class TestBase
         // Singleton: matches the library's DI registration (AddSingleton<IHybridCache, HybridCache>).
         // The static AsyncLock in HybridCache ensures cross-request stampede protection regardless.
         services.AddSingleton<HybridCache>();
+        services.AddSingleton<IHybridCache>(sp => sp.GetRequiredService<HybridCache>());
 
-        var provider = services.BuildServiceProvider();
-        Cache = provider.GetRequiredService<HybridCache>();
+        Provider = services.BuildServiceProvider();
+        Cache = Provider.GetRequiredService<HybridCache>();
     }
 }

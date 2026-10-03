@@ -20,6 +20,7 @@ public class HybridCacheBenchmark
     private IHybridCache _cacheCompressed = null!;
     private Mock<IDatabase> _redisDbMock = null!;
     private Mock<IDatabase> _redisDbCompressedMock = null!;
+    private RedisInvalidationPublisher _redisPublisher = null!;
 
     // Pre-allocated keys to avoid Guid allocation in the benchmark
     private readonly string _hitKey = "hit-key";
@@ -91,6 +92,20 @@ public class HybridCacheBenchmark
             .ReturnsAsync(true);
 
         _cacheCompressed = CreateCache(compressedOptions, redisMock2.Object);
+
+        // ── Redis Pub/Sub invalidation publisher (mocked ISubscriber) ──
+        // Measures the invalidation publish path: JSON serialized once to UTF-8 bytes
+        // and sent as a RedisValue (no intermediate string, no extra array copy).
+        var subscriberMock = new Mock<ISubscriber>();
+        subscriberMock
+            .Setup(s => s.PublishAsync(It.IsAny<RedisChannel>(), It.IsAny<RedisValue>(), It.IsAny<CommandFlags>()))
+            .ReturnsAsync(0L);
+        var invalidationRedisMock = new Mock<IConnectionMultiplexer>();
+        invalidationRedisMock.Setup(x => x.GetSubscriber(It.IsAny<object>())).Returns(subscriberMock.Object);
+        _redisPublisher = new RedisInvalidationPublisher(
+            invalidationRedisMock.Object,
+            new OptionsWrapper<HybridCacheOptions>(options),
+            NullLogger<RedisInvalidationPublisher>.Instance);
     }
 
     private static IHybridCache CreateCache(HybridCacheOptions options, IConnectionMultiplexer redis)
@@ -188,7 +203,40 @@ public class HybridCacheBenchmark
         hc.SetAsync(key, _testValue).GetAwaiter().GetResult();
     }
 
+    // ═══════════════════════════════════════════
+    //  INVALIDATION PUBLISH (Redis Pub/Sub)
+    // ═══════════════════════════════════════════
+
+    [Benchmark(Description = "PublishInvalidationAsync (Redis Pub/Sub)")]
+    public async Task PublishInvalidation_RedisPubSub() =>
+        await _redisPublisher.PublishInvalidationAsync("invalidation-key");
+
+    // ═══════════════════════════════════════════
+    //  INVALIDATION PAYLOAD — single vs double allocation
+    // ═══════════════════════════════════════════
+
+    private const long _timestamp = 1_700_000_000L;
+
+    // Same strategy as RedisInvalidationPublisher: serialize once to UTF-8 bytes.
+    [Benchmark(Description = "Invalidation payload (single alloc)")]
+    public byte[] InvalidationPayload_SingleAlloc() =>
+        System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(
+            new InvalidationMessage { Key = "invalidation-key", Timestamp = _timestamp });
+
+    // Anti-pattern kept for contrast: string round-trip allocates the string plus the bytes.
+    [Benchmark(Description = "Invalidation payload (double alloc)")]
+    public byte[] InvalidationPayload_DoubleAlloc() =>
+        System.Text.Encoding.UTF8.GetBytes(
+            System.Text.Json.JsonSerializer.Serialize(
+                new InvalidationMessage { Key = "invalidation-key", Timestamp = _timestamp }));
+
     private const string _testValue = "benchmark-value";
+
+    private class InvalidationMessage
+    {
+        public string Key { get; set; } = string.Empty;
+        public long Timestamp { get; set; }
+    }
 
     private class NoOpPublisher : ICacheInvalidationPublisher
     {

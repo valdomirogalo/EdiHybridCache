@@ -10,11 +10,11 @@
 
     <!-- NuGet package metadata -->
     <PackageId>EdiHybridCache</PackageId>
-    <Version>0.5.6</Version>
+    <Version>1.0.0</Version>
     <Authors>Valdomiro Galo (https://orcid.org/0009-0009-0862-1462)</Authors>
     <Title>EdiHybridCache</Title>
-    <Description>A hybrid L1 (memory) + L2 (Redis) caching library with RabbitMQ invalidation support for .NET.</Description>
-    <PackageTags>cache;hybrid-cache;redis;memory-cache;rabbitmq;invalidation;distributed-cache</PackageTags>
+    <Description>A hybrid L1 (memory) + L2 (Redis) caching library with Redis Pub/Sub invalidation support for .NET.</Description>
+    <PackageTags>cache;hybrid-cache;redis;memory-cache;redis-pubsub;invalidation;distributed-cache</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/valdomirogalo/EdiHybridCache</PackageProjectUrl>
     <RepositoryUrl>https://github.com/valdomirogalo/EdiHybridCache</RepositoryUrl>
@@ -46,10 +46,9 @@
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.0-preview.1.*" />
   </ItemGroup>
 
-  <!-- Redis + Messaging -->
+  <!-- Redis -->
   <ItemGroup>
     <PackageReference Include="StackExchange.Redis" Version="[2.7.33,3.0)" />
-    <PackageReference Include="RabbitMQ.Client" Version="[7.0.0,8.0)" />
   </ItemGroup>
 
   <!-- Resilience -->

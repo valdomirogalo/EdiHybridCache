@@ -70,9 +70,7 @@ public class ConfigurationTests
             // Use invariant decimal separator (period) — code parses with InvariantCulture
             Environment.SetEnvironmentVariable("L2_TTL_MULTIPLIER", "3.0");
             Environment.SetEnvironmentVariable("REDIS_CONNECTION", "redis-prod:6379");
-            Environment.SetEnvironmentVariable("RABBITMQ_HOST", "rabbit-test");
-            Environment.SetEnvironmentVariable("RABBITMQ_USERNAME", "admin");
-            Environment.SetEnvironmentVariable("RABBITMQ_PASSWORD", "secret");
+            Environment.SetEnvironmentVariable("INVALIDATION_CHANNEL", "edi.cache.invalidation.test");
 
             var config = new ConfigurationBuilder()
                 .AddInMemoryCollection(new Dictionary<string, string?>
@@ -93,9 +91,7 @@ public class ConfigurationTests
             options.DefaultL2TtlSeconds.Should().Be(2000);
             options.L2TtlMultiplier.Should().Be(3.0);
             options.RedisConnectionString.Should().Be("redis-prod:6379");
-            options.RabbitMqHost.Should().Be("rabbit-test");
-            options.RabbitMqUsername.Should().Be("admin");
-            options.RabbitMqPassword.Should().Be("secret");
+            options.InvalidationChannel.Should().Be("edi.cache.invalidation.test");
         }
         finally
         {
@@ -103,9 +99,7 @@ public class ConfigurationTests
             Environment.SetEnvironmentVariable("DEFAULT_L2_TTL_SECONDS", null);
             Environment.SetEnvironmentVariable("L2_TTL_MULTIPLIER", null);
             Environment.SetEnvironmentVariable("REDIS_CONNECTION", null);
-            Environment.SetEnvironmentVariable("RABBITMQ_HOST", null);
-            Environment.SetEnvironmentVariable("RABBITMQ_USERNAME", null);
-            Environment.SetEnvironmentVariable("RABBITMQ_PASSWORD", null);
+            Environment.SetEnvironmentVariable("INVALIDATION_CHANNEL", null);
         }
     }
 
