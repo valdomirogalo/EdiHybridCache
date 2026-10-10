@@ -1,4 +1,4 @@
-using FluentAssertions;
+using System.Diagnostics.Metrics;
 using Moq;
 using StackExchange.Redis;
 using Xunit;
@@ -27,7 +27,7 @@ public class HybridCacheEdgeCaseTests : TestBase
         RedisDbMock.Setup(x => x.StringGetAsync("", It.IsAny<CommandFlags>()))
                    .ReturnsAsync(RedisValue.Null);
         var result = await Cache.GetAsync<string>("");
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -36,7 +36,7 @@ public class HybridCacheEdgeCaseTests : TestBase
         RedisDbMock.Setup(x => x.StringGetAsync("   ", It.IsAny<CommandFlags>()))
                    .ReturnsAsync(RedisValue.Null);
         var result = await Cache.GetAsync<string>("   ");
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -47,7 +47,7 @@ public class HybridCacheEdgeCaseTests : TestBase
         RedisDbMock.Setup(x => x.StringGetAsync(key, It.IsAny<CommandFlags>()))
                    .ReturnsAsync((RedisValue)"null"u8.ToArray());
         var result = await Cache.GetAsync<TestClass>(key);
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -58,7 +58,7 @@ public class HybridCacheEdgeCaseTests : TestBase
         RedisDbMock.Setup(x => x.StringGetAsync(key, It.IsAny<CommandFlags>()))
                    .ReturnsAsync((RedisValue)new byte[] { 0xFF, 0xFE, 0x00, 0x01 });
         var result = await Cache.GetAsync<TestClass>(key);
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -72,7 +72,7 @@ public class HybridCacheEdgeCaseTests : TestBase
         RedisDbMock.Setup(x => x.StringGetAsync(key, It.IsAny<CommandFlags>()))
                    .ReturnsAsync((RedisValue)json);
         var result = await Cache.GetAsync<TestClass>(key);
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public class HybridCacheEdgeCaseTests : TestBase
         RedisDbMock.Setup(x => x.StringGetAsync(key, It.IsAny<CommandFlags>()))
                    .ReturnsAsync(RedisValue.Null);
         var result = await Cache.GetAsync<string>(key);
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     // ─────────────────────────────────────────────────────────────
@@ -130,7 +130,7 @@ public class HybridCacheEdgeCaseTests : TestBase
             .ThrowsAsync(new TimeoutException("Redis timeout"));
         await Cache.SetAsync(key, "value");
         var cached = await Cache.GetAsync<string>(key);
-        cached.Should().Be("value");
+        Assert.Equal("value", cached);
     }
 
     [Fact]
@@ -239,9 +239,9 @@ public class HybridCacheEdgeCaseTests : TestBase
         RedisDbMock.Setup(x => x.StringGetAsync(key, It.IsAny<CommandFlags>()))
                    .ReturnsAsync(RedisValue.Null);
         var first = await Cache.GetAsync<string>(key);
-        first.Should().BeNull();
+        Assert.Null(first);
         var second = await Cache.GetAsync<string>(key);
-        second.Should().BeNull();
+        Assert.Null(second);
         RedisDbMock.Verify(x => x.StringGetAsync(key, It.IsAny<CommandFlags>()), Times.Exactly(2));
     }
 
@@ -255,7 +255,117 @@ public class HybridCacheEdgeCaseTests : TestBase
         RedisDbMock.Setup(x => x.StringGetAsync(key, It.IsAny<CommandFlags>()))
                    .ReturnsAsync((RedisValue)garbage);
         var result = await Cache.GetAsync<string>(key);
-        result.Should().BeNull();
+        Assert.Null(result);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  Key length validation (symmetry with GetAsync/SetAsync)
+    // ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task RemoveAsync_WhenKeyTooLong_ShouldThrow()
+    {
+        var longKey = new string('a', Constants.MaxKeyLength + 1);
+        Func<Task> act = () => Cache.RemoveAsync(longKey);
+        await Assert.ThrowsAsync<ArgumentException>(act);
+    }
+
+    [Fact]
+    public async Task PublishInvalidationAsync_WhenKeyTooLong_ShouldThrow()
+    {
+        var longKey = new string('a', Constants.MaxKeyLength + 1);
+        Func<Task> act = () => Cache.PublishInvalidationAsync(longKey);
+        await Assert.ThrowsAsync<ArgumentException>(act);
+    }
+
+    [Fact]
+    public void InvalidateLocal_WhenKeyTooLong_ShouldThrow()
+    {
+        var longKey = new string('a', Constants.MaxKeyLength + 1);
+        var act = () => Cache.InvalidateLocal(longKey);
+        Assert.Throws<ArgumentException>(act);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  Cancellation (fast lock path respects the token)
+    // ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task GetAsync_WhenCancelled_ShouldThrow()
+    {
+        var key = "cancelled-key";
+        RedisDbMock.Setup(x => x.StringGetAsync(key, It.IsAny<CommandFlags>()))
+                   .ReturnsAsync(RedisValue.Null);
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        Func<Task> act = async () => await Cache.GetAsync<string>(key, cts.Token);
+        await Assert.ThrowsAsync<OperationCanceledException>(act);
+    }
+
+    // ─────────────────────────────────────────────────────────────
+    //  L1 cache-size gauge (edi.cache.size) reflects mutations
+    // ─────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task SetAndRemove_ShouldUpdateCacheSizeGauge()
+    {
+        long reported = -1;
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, l) =>
+        {
+            if (instrument.Meter.Name == Constants.MeterName && instrument.Name == Constants.MetricCacheSize)
+                l.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((instrument, measurement, tags, state) => reported = measurement);
+        listener.Start();
+
+        await Cache.SetAsync("gauge-key", "value");
+        listener.RecordObservableInstruments();
+        Assert.Equal(1, reported);
+
+        await Cache.RemoveAsync("gauge-key");
+        listener.RecordObservableInstruments();
+        Assert.Equal(0, reported);
+    }
+
+    [Fact]
+    public async Task RemoveAsync_WhenPublisherSucceeds_ShouldIncrementInvalidationsPublished()
+    {
+        long published = 0;
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, l) =>
+        {
+            if (instrument.Name == Constants.MetricInvalidationsPublished)
+                l.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, measurement, _, _) => published += measurement);
+        listener.Start();
+
+        await Cache.RemoveAsync("metric-key");
+
+        Assert.Equal(1, published);
+    }
+
+    [Fact]
+    public async Task RemoveAsync_WhenPublisherFails_ShouldNotIncrementInvalidationsPublished()
+    {
+        long published = 0;
+        using var listener = new MeterListener();
+        listener.InstrumentPublished = (instrument, l) =>
+        {
+            if (instrument.Name == Constants.MetricInvalidationsPublished)
+                l.EnableMeasurementEvents(instrument);
+        };
+        listener.SetMeasurementEventCallback<long>((_, measurement, _, _) => published += measurement);
+        listener.Start();
+
+        PublisherMock.Setup(x => x.PublishInvalidationAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("publish failed"));
+
+        await Cache.RemoveAsync("metric-key-fail");
+
+        Assert.Equal(0, published);
     }
 
     private class TestClass

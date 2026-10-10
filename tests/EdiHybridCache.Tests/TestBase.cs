@@ -1,7 +1,6 @@
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using StackExchange.Redis;
@@ -16,6 +15,7 @@ public abstract class TestBase
     protected Mock<IConnectionMultiplexer> RedisMock { get; }
     protected Mock<IDatabase> RedisDbMock { get; }
     protected Mock<ICacheInvalidationPublisher> PublisherMock { get; }
+    protected TestLogger<HybridCache> Logger { get; }
     protected HybridCache Cache { get; }
     protected ServiceProvider Provider { get; }
 
@@ -35,12 +35,14 @@ public abstract class TestBase
 
         PublisherMock = new Mock<ICacheInvalidationPublisher>();
 
+        Logger = new TestLogger<HybridCache>();
+
         var services = new ServiceCollection();
         services.AddSingleton<IOptions<HybridCacheOptions>>(new OptionsWrapper<HybridCacheOptions>(Options));
         services.AddMemoryCache();
         services.AddSingleton(RedisMock.Object);
         services.AddSingleton(PublisherMock.Object);
-        services.AddSingleton<ILogger<HybridCache>>(new NullLogger<HybridCache>());
+        services.AddSingleton<ILogger<HybridCache>>(Logger);
         services.AddSingleton<CacheMetrics>();
         // Singleton: matches the library's DI registration (AddSingleton<IHybridCache, HybridCache>).
         // The static AsyncLock in HybridCache ensures cross-request stampede protection regardless.

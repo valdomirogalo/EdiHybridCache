@@ -26,10 +26,9 @@ internal class AsyncLock
 
         // Fast path: acquire synchronously — zero allocation.
         // With AsyncLockStripeCount = 16384 and typical concurrency, this succeeds >99% of the time.
-        // CA2016: Wait(0, CancellationToken.None) — the fast path intentionally does not
-        // propagate the caller's cancellation token because the synchronous wait is
-        // near-instantaneous (single interlocked decrement) and never blocks asynchronously.
-        if (semaphore.Wait(0, CancellationToken.None))
+        // Wait(0, cancellationToken) throws OperationCanceledException when the token is already
+        // canceled, keeping cancellation behavior consistent with the contended (slow) path.
+        if (semaphore.Wait(0, cancellationToken))
             return new ValueTask<Releaser>(new Releaser(semaphore));
 
         // Slow path: stripe is contended, fall back to async wait.

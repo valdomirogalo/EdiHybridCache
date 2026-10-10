@@ -1,5 +1,4 @@
 using System.Text.Json;
-using FluentAssertions;
 using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -48,15 +47,15 @@ public class RedisInvalidationSubscriberTests : TestBase
 
         await Cache.SetAsync("remote-key", "value");
         var memoryCache = Provider.GetRequiredService<IMemoryCache>();
-        memoryCache.TryGetValue("remote-key", out string? _).Should().BeTrue();
+        Assert.True(memoryCache.TryGetValue("remote-key", out string? _));
 
         await subscriber.StartAsync();
-        holder.Handler.Should().NotBeNull();
+        Assert.NotNull(holder.Handler);
 
         var payload = JsonSerializer.SerializeToUtf8Bytes(new { Key = "remote-key", Timestamp = 1L });
         holder.Handler!(channel, payload);
 
-        memoryCache.TryGetValue("remote-key", out string? _).Should().BeFalse();
+        Assert.False(memoryCache.TryGetValue("remote-key", out string? _));
     }
 
     [Fact]
@@ -68,7 +67,7 @@ public class RedisInvalidationSubscriberTests : TestBase
 
         var act = () => holder.Handler!(channel, (RedisValue)"not-json");
 
-        act.Should().NotThrow();
+        Assert.Null(Record.Exception(act));
     }
 
     [Fact]
@@ -85,6 +84,34 @@ public class RedisInvalidationSubscriberTests : TestBase
     }
 
     [Fact]
+    public async Task Dispose_ShouldUnsubscribeOnlyOnce()
+    {
+        var (subscriber, subscriberMock, _) = CreateSubscriber("test.channel");
+        await subscriber.StartAsync();
+
+        subscriber.Dispose();
+        subscriber.Dispose();
+
+        subscriberMock.Verify(
+            s => s.Unsubscribe(It.IsAny<RedisChannel>(), It.IsAny<Action<RedisChannel, RedisValue>>(), It.IsAny<CommandFlags>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task Stop_AfterDispose_ShouldBeNoOp()
+    {
+        var (subscriber, subscriberMock, _) = CreateSubscriber("test.channel");
+        await subscriber.StartAsync();
+
+        subscriber.Dispose();
+        subscriber.Stop();
+
+        subscriberMock.Verify(
+            s => s.Unsubscribe(It.IsAny<RedisChannel>(), It.IsAny<Action<RedisChannel, RedisValue>>(), It.IsAny<CommandFlags>()),
+            Times.Once);
+    }
+
+    [Fact]
     public void RedisValue_FromUtf8Bytes_ShouldNotCopyOnCast()
     {
         var bytes = JsonSerializer.SerializeToUtf8Bytes(new { Key = "remote-key", Timestamp = 1L });
@@ -92,7 +119,7 @@ public class RedisInvalidationSubscriberTests : TestBase
         RedisValue value = bytes;
         var roundtrip = (byte[]?)value;
 
-        ReferenceEquals(bytes, roundtrip).Should().BeTrue();
+        Assert.True(ReferenceEquals(bytes, roundtrip));
     }
 
     [Fact]
@@ -123,12 +150,40 @@ public class RedisInvalidationSubscriberTests : TestBase
 
         // The publisher emits raw UTF-8 bytes...
         await publisher.PublishInvalidationAsync("roundtrip-key");
-        ((byte[]?)captured).Should().NotBeNull();
+        Assert.NotNull((byte[]?)captured);
 
         // ...and the subscriber consumes those exact bytes (no string round-trip).
         handler!(RedisChannel.Literal("roundtrip.channel"), captured);
 
-        Provider.GetRequiredService<IMemoryCache>().TryGetValue("roundtrip-key", out string? _).Should().BeFalse();
+        Assert.False(Provider.GetRequiredService<IMemoryCache>().TryGetValue("roundtrip-key", out string? _));
+    }
+
+    [Fact]
+    public void Constructor_WhenServiceProviderIsNull_ShouldThrow()
+    {
+        var act = () => new RedisInvalidationSubscriber(null!, RedisMock.Object, new OptionsWrapper<HybridCacheOptions>(Options), NullLogger<RedisInvalidationSubscriber>.Instance);
+        Assert.Throws<ArgumentNullException>(act);
+    }
+
+    [Fact]
+    public void Constructor_WhenRedisConnectionIsNull_ShouldThrow()
+    {
+        var act = () => new RedisInvalidationSubscriber(Provider, null!, new OptionsWrapper<HybridCacheOptions>(Options), NullLogger<RedisInvalidationSubscriber>.Instance);
+        Assert.Throws<ArgumentNullException>(act);
+    }
+
+    [Fact]
+    public void Constructor_WhenOptionsIsNull_ShouldThrow()
+    {
+        var act = () => new RedisInvalidationSubscriber(Provider, RedisMock.Object, null!, NullLogger<RedisInvalidationSubscriber>.Instance);
+        Assert.Throws<ArgumentNullException>(act);
+    }
+
+    [Fact]
+    public void Constructor_WhenLoggerIsNull_ShouldThrow()
+    {
+        var act = () => new RedisInvalidationSubscriber(Provider, RedisMock.Object, new OptionsWrapper<HybridCacheOptions>(Options), null!);
+        Assert.Throws<ArgumentNullException>(act);
     }
 
     private sealed class HandlerHolder

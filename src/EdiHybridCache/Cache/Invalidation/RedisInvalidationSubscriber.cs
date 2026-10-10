@@ -55,8 +55,6 @@ public class RedisInvalidationSubscriber : ICacheInvalidationSubscriber
             Stop();
             _disposed = true;
         }
-
-        GC.SuppressFinalize(this);
     }
 
     private void OnMessage(RedisChannel channel, RedisValue value)
@@ -67,13 +65,11 @@ public class RedisInvalidationSubscriber : ICacheInvalidationSubscriber
             var message = JsonSerializer.Deserialize<InvalidationMessage>((byte[]?)value);
             if (message != null)
             {
-                using var scope = _serviceProvider.CreateScope();
-                var hybridCache = scope.ServiceProvider.GetRequiredService<IHybridCache>();
-                if (hybridCache is HybridCache hc)
-                {
-                    hc.InvalidateLocal(message.Key);
-                    _logger.LogDebug("Invalidated local cache for key: {Key} from remote event.", Constants.SanitizeForLog(message.Key));
-                }
+                // IHybridCache is a singleton, so resolving it from the root provider avoids the
+                // unnecessary scope and the downcast to the concrete HybridCache type.
+                var hybridCache = _serviceProvider.GetRequiredService<IHybridCache>();
+                hybridCache.InvalidateLocal(message.Key);
+                _logger.LogDebug("Invalidated local cache for key: {Key} from remote event.", Constants.SanitizeForLog(message.Key));
             }
         }
         catch (Exception ex)

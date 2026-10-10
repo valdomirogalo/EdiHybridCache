@@ -43,12 +43,13 @@ internal static class CompressionHelper
         }
     }
 
-    public static bool TryDecompress(ReadOnlySpan<byte> compressedData, out byte[] result)
+    public static bool TryDecompress(byte[] compressedData, out PooledBuffer result)
     {
-        result = [];
-
         if (compressedData.Length == 0)
+        {
+            result = default;
             return true;
+        }
 
         var buffer = ArrayPool<byte>.Shared.Rent(
             Math.Min(compressedData.Length * 10, Constants.MaxDecompressedBytes));
@@ -58,58 +59,68 @@ internal static class CompressionHelper
             var (totalRead, finalBuffer) = DecompressToBuffer(compressedData, buffer);
 
             if (totalRead >= Constants.MaxDecompressedBytes)
+            {
+                ArrayPool<byte>.Shared.Return(finalBuffer);
+                result = default;
                 return false; // CWE-409: ZIP Bomb — hard cap reached
+            }
 
-            result = new byte[totalRead];
-            finalBuffer.AsSpan(0, totalRead).CopyTo(result);
+            // Ownership of finalBuffer transfers to the returned lease; Dispose() returns it.
+            result = new PooledBuffer(finalBuffer, totalRead);
             return true;
         }
         catch (InvalidDataException)
         {
-            result = [];
+            // DecompressToBuffer returned the buffer to the pool before rethrowing.
+            result = default;
             return false;
-        }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
         }
     }
 
     private static (int TotalRead, byte[] Buffer) DecompressToBuffer(
-        ReadOnlySpan<byte> compressedData, byte[] buffer)
+        byte[] compressedData, byte[] buffer)
     {
-        // Use ReadOnlySpan<byte> directly — avoid the compressedData.ToArray() copy.
-        // The byte[] array passed to MemoryStream is not written to, so writable: false.
-        var compressedCopy = compressedData.ToArray();
-        using var input = new MemoryStream(compressedCopy, writable: false);
-        using var gzip = new GZipStream(input, CompressionMode.Decompress);
-
-        var totalRead = 0;
-        int bytesRead;
-
-        do
+        try
         {
-            var remaining = buffer.Length - totalRead;
+            // MemoryStream(byte[], writable: false) wraps the existing array directly without
+            // copying — the previous compressedData.ToArray() allocated a redundant copy.
+            using var input = new MemoryStream(compressedData, writable: false);
+            using var gzip = new GZipStream(input, CompressionMode.Decompress);
 
-            if (remaining == 0)
+            var totalRead = 0;
+            int bytesRead;
+
+            do
             {
-                // Expand buffer (doubles) up to the hard cap
-                var newSize = Math.Min(buffer.Length * 2, Constants.MaxDecompressedBytes);
-                if (newSize <= buffer.Length)
-                    break;
+                var remaining = buffer.Length - totalRead;
 
-                var newBuffer = ArrayPool<byte>.Shared.Rent(newSize);
-                buffer.AsSpan(0, totalRead).CopyTo(newBuffer);
-                ArrayPool<byte>.Shared.Return(buffer);
-                buffer = newBuffer;
-                remaining = buffer.Length - totalRead;
+                if (remaining == 0)
+                {
+                    // Expand buffer (doubles) up to the hard cap
+                    var newSize = Math.Min(buffer.Length * 2, Constants.MaxDecompressedBytes);
+                    if (newSize <= buffer.Length)
+                        break;
+
+                    var newBuffer = ArrayPool<byte>.Shared.Rent(newSize);
+                    buffer.AsSpan(0, totalRead).CopyTo(newBuffer);
+                    ArrayPool<byte>.Shared.Return(buffer);
+                    buffer = newBuffer;
+                    remaining = buffer.Length - totalRead;
+                }
+
+                bytesRead = gzip.Read(buffer, totalRead, remaining);
+                totalRead += bytesRead;
             }
+            while (bytesRead > 0 && totalRead < Constants.MaxDecompressedBytes);
 
-            bytesRead = gzip.Read(buffer, totalRead, remaining);
-            totalRead += bytesRead;
+            return (totalRead, buffer);
         }
-        while (bytesRead > 0 && totalRead < Constants.MaxDecompressedBytes);
-
-        return (totalRead, buffer);
+        catch
+        {
+            // Return the current buffer (which may have grown) before propagating the failure,
+            // so it is never leaked nor returned twice.
+            ArrayPool<byte>.Shared.Return(buffer);
+            throw;
+        }
     }
 }

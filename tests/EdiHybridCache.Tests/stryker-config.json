@@ -1,0 +1,10 @@
+{
+  "stryker-config": {
+    "project": "EdiHybridCache.csproj",
+    "reporters": ["progress", "json"],
+    "mutation-level": "Standard",
+    "ignore-mutations": ["string", "statement", "linq", "block", "conditional"],
+    "ignore-methods": ["ConfigureAwait"],
+    "thresholds": { "high": 80, "low": 60, "break": 0 }
+  }
+}

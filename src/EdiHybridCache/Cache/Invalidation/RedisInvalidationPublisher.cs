@@ -45,7 +45,11 @@ public class RedisInvalidationPublisher : ICacheInvalidationPublisher
             Constants.SanitizeForLog(key), _channel, receivers);
     }
 
-    public void Dispose() => GC.SuppressFinalize(this);
+    public void Dispose()
+    {
+        // No unmanaged resources or owned disposables: ISubscriber and IConnectionMultiplexer
+        // are shared singletons owned by the DI container.
+    }
 
     private class InvalidationMessage
     {

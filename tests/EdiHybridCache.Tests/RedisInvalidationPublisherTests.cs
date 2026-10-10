@@ -1,5 +1,4 @@
 using System.Text.Json;
-using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
@@ -42,14 +41,14 @@ public class RedisInvalidationPublisherTests
         await publisher.PublishInvalidationAsync("my-key");
 
         // Assert
-        capturedChannel.ToString().Should().Be("test.channel");
+        Assert.Equal("test.channel", capturedChannel.ToString());
 
         // Payload is published as raw UTF-8 bytes (single allocation, no intermediate string)
         var bytes = (byte[]?)capturedValue;
-        bytes.Should().NotBeNull();
+        Assert.NotNull(bytes);
         using var doc = JsonDocument.Parse(bytes!);
-        doc.RootElement.GetProperty("Key").GetString().Should().Be("my-key");
-        doc.RootElement.TryGetProperty("Timestamp", out _).Should().BeTrue();
+        Assert.Equal("my-key", doc.RootElement.GetProperty("Key").GetString());
+        Assert.True(doc.RootElement.TryGetProperty("Timestamp", out _));
 
         subscriberMock.Verify(
             s => s.PublishAsync(It.IsAny<RedisChannel>(), It.IsAny<RedisValue>(), It.IsAny<CommandFlags>()),
@@ -69,6 +68,29 @@ public class RedisInvalidationPublisherTests
 
         var act = async () => await publisher.PublishInvalidationAsync(null!);
 
-        await act.Should().ThrowAsync<ArgumentNullException>();
+        await Assert.ThrowsAsync<ArgumentNullException>(act);
+    }
+
+    [Fact]
+    public void Constructor_WhenRedisConnectionIsNull_ShouldThrow()
+    {
+        var options = new OptionsWrapper<HybridCacheOptions>(new HybridCacheOptions());
+        var act = () => new RedisInvalidationPublisher(null!, options, NullLogger<RedisInvalidationPublisher>.Instance);
+        Assert.Throws<ArgumentNullException>(act);
+    }
+
+    [Fact]
+    public void Constructor_WhenOptionsIsNull_ShouldThrow()
+    {
+        var act = () => new RedisInvalidationPublisher(new Mock<IConnectionMultiplexer>().Object, null!, NullLogger<RedisInvalidationPublisher>.Instance);
+        Assert.Throws<ArgumentNullException>(act);
+    }
+
+    [Fact]
+    public void Constructor_WhenLoggerIsNull_ShouldThrow()
+    {
+        var options = new OptionsWrapper<HybridCacheOptions>(new HybridCacheOptions());
+        var act = () => new RedisInvalidationPublisher(new Mock<IConnectionMultiplexer>().Object, options, null!);
+        Assert.Throws<ArgumentNullException>(act);
     }
 }

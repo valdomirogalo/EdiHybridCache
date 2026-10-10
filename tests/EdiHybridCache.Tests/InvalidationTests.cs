@@ -1,4 +1,3 @@
-using FluentAssertions;
 using Moq;
 using Xunit;
 using EdiHybridCache.Cache.Invalidation;
@@ -22,11 +21,11 @@ public class InvalidationTests : TestBase
         await Cache.SetAsync(key, "value");
 
         var before = await Cache.GetAsync<string>(key);
-        before.Should().Be("value");
+        Assert.Equal("value", before);
 
         Cache.InvalidateLocal(key);
 
         var after = await Cache.GetAsync<string>(key);
-        after.Should().BeNull();
+        Assert.Null(after);
     }
 }

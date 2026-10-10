@@ -18,7 +18,10 @@ public class CompressionHelperTests
 
         var ok = CompressionHelper.TryDecompress(compressed, out var result);
         Assert.True(ok);
-        Assert.Equal(data, result);
+        using (result)
+        {
+            Assert.Equal(data, result.Span.ToArray());
+        }
     }
 
     [Fact]
@@ -28,7 +31,10 @@ public class CompressionHelperTests
         var compressed = CompressionHelper.Compress(data);
         var ok = CompressionHelper.TryDecompress(compressed, out var result);
         Assert.True(ok);
-        Assert.Equal(data, result);
+        using (result)
+        {
+            Assert.Equal(data, result.Span.ToArray());
+        }
     }
 
     [Fact]
@@ -43,7 +49,10 @@ public class CompressionHelperTests
 
         var ok = CompressionHelper.TryDecompress(compressed, out var result);
         Assert.True(ok);
-        Assert.Equal(data, result);
+        using (result)
+        {
+            Assert.Equal(data, result.Span.ToArray());
+        }
     }
 
     [Fact]
@@ -56,7 +65,10 @@ public class CompressionHelperTests
         // Random data may not compress — but must round-trip
         var ok = CompressionHelper.TryDecompress(compressed, out var result);
         Assert.True(ok);
-        Assert.Equal(data, result);
+        using (result)
+        {
+            Assert.Equal(data, result.Span.ToArray());
+        }
     }
 
     [Fact]
@@ -64,7 +76,10 @@ public class CompressionHelperTests
     {
         var ok = CompressionHelper.TryDecompress([], out var result);
         Assert.True(ok);
-        Assert.Empty(result);
+        using (result)
+        {
+            Assert.Empty(result.Span.ToArray());
+        }
     }
 
     [Fact]
@@ -82,7 +97,10 @@ public class CompressionHelperTests
         var header = new byte[] { 0x1F, 0x8B, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03 };
         var ok = CompressionHelper.TryDecompress(header, out var result);
         Assert.True(ok);
-        Assert.Empty(result);
+        using (result)
+        {
+            Assert.Empty(result.Span.ToArray());
+        }
     }
 
     [Fact]

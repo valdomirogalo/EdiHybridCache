@@ -1,4 +1,3 @@
-using FluentAssertions;
 using Moq;
 using StackExchange.Redis;
 using Xunit;
@@ -24,13 +23,13 @@ public class HybridCacheTests : TestBase
 
         var result = await Cache.GetAsync<TestClass>(key);
 
-        result.Should().NotBeNull();
-        result!.Id.Should().Be(1);
-        result.Name.Should().Be("Test");
+        Assert.NotNull(result);
+        Assert.Equal(1, result!.Id);
+        Assert.Equal("Test", result.Name);
 
         var cached = await Cache.GetAsync<TestClass>(key);
-        cached.Should().NotBeNull();
-        cached!.Id.Should().Be(1);
+        Assert.NotNull(cached);
+        Assert.Equal(1, cached!.Id);
     }
 
     [Fact]
@@ -41,14 +40,14 @@ public class HybridCacheTests : TestBase
         await Cache.SetAsync(key, value);
 
         var first = await Cache.GetAsync<TestClass>(key);
-        first.Should().NotBeNull();
-        first!.Id.Should().Be(10);
+        Assert.NotNull(first);
+        Assert.Equal(10, first!.Id);
 
         RedisDbMock.Invocations.Clear();
 
         var second = await Cache.GetAsync<TestClass>(key);
-        second.Should().NotBeNull();
-        second!.Id.Should().Be(10);
+        Assert.NotNull(second);
+        Assert.Equal(10, second!.Id);
 
         RedisDbMock.Verify(x => x.StringGetAsync(key, It.IsAny<CommandFlags>()), Times.Never);
     }
@@ -61,7 +60,7 @@ public class HybridCacheTests : TestBase
                    .ReturnsAsync(RedisValue.Null);
 
         var result = await Cache.GetAsync<TestClass>(key);
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -72,7 +71,7 @@ public class HybridCacheTests : TestBase
                    .ThrowsAsync(new RedisException("Connection failed"));
 
         var result = await Cache.GetAsync<TestClass>(key);
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -83,7 +82,7 @@ public class HybridCacheTests : TestBase
                    .ThrowsAsync(new TimeoutException("Timeout"));
 
         var result = await Cache.GetAsync<TestClass>(key);
-        result.Should().BeNull();
+        Assert.Null(result);
     }
 
     [Fact]
@@ -101,16 +100,16 @@ public class HybridCacheTests : TestBase
                    .ReturnsAsync((RedisValue)compressed);
 
         var result = await Cache.GetAsync<TestClass>(key);
-        result.Should().NotBeNull();
-        result!.Id.Should().Be(5);
-        result.Name.Should().Be("Compressed");
+        Assert.NotNull(result);
+        Assert.Equal(5, result!.Id);
+        Assert.Equal("Compressed", result.Name);
     }
 
     [Fact]
     public async Task GetAsync_WhenKeyIsNull_ShouldThrow()
     {
         Func<Task> act = async () => await Cache.GetAsync<TestClass>(null!);
-        await act.Should().ThrowAsync<ArgumentNullException>();
+        await Assert.ThrowsAsync<ArgumentNullException>(act);
     }
 
     [Fact]
@@ -118,7 +117,7 @@ public class HybridCacheTests : TestBase
     {
         var longKey = new string('a', 513);
         Func<Task> act = async () => await Cache.GetAsync<TestClass>(longKey);
-        await act.Should().ThrowAsync<ArgumentException>();
+        await Assert.ThrowsAsync<ArgumentException>(act);
     }
 
     [Fact]
@@ -137,9 +136,9 @@ public class HybridCacheTests : TestBase
             Times.Once);
 
         var cached = await Cache.GetAsync<TestClass>(key);
-        cached.Should().NotBeNull();
-        cached!.Id.Should().Be(2);
-        cached.Name.Should().Be("Set");
+        Assert.NotNull(cached);
+        Assert.Equal(2, cached!.Id);
+        Assert.Equal("Set", cached.Name);
     }
 
     [Fact]
@@ -147,14 +146,14 @@ public class HybridCacheTests : TestBase
     {
         var key = "null-key";
         Func<Task> act = () => Cache.SetAsync<TestClass>(key, null!);
-        await act.Should().ThrowAsync<ArgumentNullException>();
+        await Assert.ThrowsAsync<ArgumentNullException>(act);
     }
 
     [Fact]
     public async Task SetAsync_WhenKeyIsNull_ShouldThrow()
     {
         Func<Task> act = () => Cache.SetAsync<TestClass>(null!, new TestClass());
-        await act.Should().ThrowAsync<ArgumentNullException>();
+        await Assert.ThrowsAsync<ArgumentNullException>(act);
     }
 
     [Fact]
@@ -162,7 +161,7 @@ public class HybridCacheTests : TestBase
     {
         var longKey = new string('a', 513);
         Func<Task> act = () => Cache.SetAsync(longKey, new TestClass());
-        await act.Should().ThrowAsync<ArgumentException>();
+        await Assert.ThrowsAsync<ArgumentException>(act);
     }
 
     [Fact]
@@ -181,8 +180,8 @@ public class HybridCacheTests : TestBase
             Times.Once);
 
         var cached = await Cache.GetAsync<TestClass>(key);
-        cached.Should().NotBeNull();
-        cached!.Id.Should().Be(7);
+        Assert.NotNull(cached);
+        Assert.Equal(7, cached!.Id);
     }
 
     [Fact]
@@ -216,8 +215,8 @@ public class HybridCacheTests : TestBase
         await Cache.SetAsync(key, value);
 
         var cached = await Cache.GetAsync<TestClass>(key);
-        cached.Should().NotBeNull();
-        cached!.Id.Should().Be(9);
+        Assert.NotNull(cached);
+        Assert.Equal(9, cached!.Id);
     }
 
     [Fact]
@@ -231,7 +230,7 @@ public class HybridCacheTests : TestBase
         RedisDbMock.Verify(x => x.KeyDeleteAsync(key, It.IsAny<CommandFlags>()), Times.Once);
         PublisherMock.Verify(x => x.PublishInvalidationAsync(key, It.IsAny<CancellationToken>()), Times.Once);
         var cached = await Cache.GetAsync<TestClass>(key);
-        cached.Should().BeNull();
+        Assert.Null(cached);
     }
 
     [Fact]
@@ -246,7 +245,7 @@ public class HybridCacheTests : TestBase
         Func<Task> act = () => Cache.RemoveAsync(key);
 
         // Exception propagates after retries are exhausted → L1 untouched, no event published
-        await act.Should().ThrowAsync<RedisException>();
+        await Assert.ThrowsAsync<RedisException>(act);
 
         PublisherMock.Verify(x => x.PublishInvalidationAsync(key, It.IsAny<CancellationToken>()), Times.Never);
     }
@@ -288,14 +287,63 @@ public class HybridCacheTests : TestBase
         tcsReleaseRedis.TrySetResult();
 
         var resultA = await taskA.WaitAsync(TimeSpan.FromSeconds(5));
-        resultA.Should().NotBeNull();
-        resultA!.Id.Should().Be(42);
+        Assert.NotNull(resultA);
+        Assert.Equal(42, resultA!.Id);
 
         var resultB = await taskB.WaitAsync(TimeSpan.FromSeconds(5));
-        resultB.Should().NotBeNull();
-        resultB!.Id.Should().Be(42);
+        Assert.NotNull(resultB);
+        Assert.Equal(42, resultB!.Id);
 
         RedisDbMock.Verify(x => x.StringGetAsync(key, It.IsAny<CommandFlags>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task SetAsync_WithCompression_ShouldStoreGzipBytes()
+    {
+        Options.EnableCompression = true;
+        Options.CompressionThresholdBytes = 1;
+        var key = "compress-verify";
+        var value = new string('x', 10_000);
+
+        await Cache.SetAsync(key, value);
+
+        // The stored value must be gzip-compressed (magic header 0x1F 0x8B).
+        RedisDbMock.Verify(x => x.StringSetAsync(
+            key,
+            It.Is<RedisValue>(v => ((byte[])v!)[0] == 0x1F && ((byte[])v!)[1] == 0x8B),
+            It.IsAny<TimeSpan?>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SetAsync_WhenCompressionDisabled_ShouldNotCompress()
+    {
+        Options.EnableCompression = false;
+        Options.CompressionThresholdBytes = 1;
+        var key = "no-compress";
+        var value = new string('x', 10_000);
+
+        await Cache.SetAsync(key, value);
+
+        // Raw JSON starts with a double-quote (0x22), not the gzip magic (0x1F).
+        RedisDbMock.Verify(x => x.StringSetAsync(
+            key,
+            It.Is<RedisValue>(v => ((byte[])v!)[0] == (byte)'"'),
+            It.IsAny<TimeSpan?>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SetAsync_ShouldStoreCompactJson()
+    {
+        var key = "compact-json";
+        var value = new TestClass { Id = 1, Name = "Test" };
+
+        await Cache.SetAsync(key, value);
+
+        RedisDbMock.Verify(x => x.StringSetAsync(
+            key,
+            It.Is<RedisValue>(v => !System.Text.Encoding.UTF8.GetString((byte[])v!).Contains('\n')
+                                   && !System.Text.Encoding.UTF8.GetString((byte[])v!).Contains('\r')),
+            It.IsAny<TimeSpan?>()), Times.Once);
     }
 
     private class TestClass

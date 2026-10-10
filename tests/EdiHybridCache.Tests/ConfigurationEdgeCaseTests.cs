@@ -1,4 +1,3 @@
-using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -32,7 +31,7 @@ public class ConfigurationEdgeCaseTests
             var options = provider.GetRequiredService<IOptions<HybridCacheOptions>>().Value;
 
             // Invalid env var should be ignored; default should remain
-            options.L1TtlSeconds.Should().Be(Constants.DefaultL1TtlSeconds);
+            Assert.Equal(Constants.DefaultL1TtlSeconds, options.L1TtlSeconds);
         }
         finally
         {
@@ -62,7 +61,7 @@ public class ConfigurationEdgeCaseTests
             var provider = services.BuildServiceProvider();
             var options = provider.GetRequiredService<IOptions<HybridCacheOptions>>().Value;
 
-            options.L2TtlMultiplier.Should().Be(Constants.DefaultL2TtlMultiplier);
+            Assert.Equal(Constants.DefaultL2TtlMultiplier, options.L2TtlMultiplier);
         }
         finally
         {
@@ -92,7 +91,7 @@ public class ConfigurationEdgeCaseTests
             var options = provider.GetRequiredService<IOptions<HybridCacheOptions>>().Value;
 
             // With AllowThousands, "2,5" parses as 25.0 (comma is thousands separator)
-            options.L2TtlMultiplier.Should().Be(25.0);
+            Assert.Equal(25.0, options.L2TtlMultiplier);
         }
         finally
         {
@@ -116,14 +115,14 @@ public class ConfigurationEdgeCaseTests
         var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<HybridCacheOptions>>().Value;
 
-        options.L1TtlSeconds.Should().Be(Constants.DefaultL1TtlSeconds);
-        options.DefaultL2TtlSeconds.Should().Be(Constants.DefaultL2TtlSeconds);
-        options.L2TtlMultiplier.Should().Be(Constants.DefaultL2TtlMultiplier);
-        options.MaxCacheSizeBytes.Should().Be(Constants.DefaultMaxCacheSizeBytes);
-        options.EnableCompression.Should().BeTrue();
-        options.CompressionThresholdBytes.Should().Be(Constants.DefaultCompressionThresholdBytes);
-        options.RetryCount.Should().Be(Constants.DefaultRetryCount);
-        options.RetryBaseDelaySeconds.Should().Be(Constants.DefaultRetryBaseDelaySeconds);
+        Assert.Equal(Constants.DefaultL1TtlSeconds, options.L1TtlSeconds);
+        Assert.Equal(Constants.DefaultL2TtlSeconds, options.DefaultL2TtlSeconds);
+        Assert.Equal(Constants.DefaultL2TtlMultiplier, options.L2TtlMultiplier);
+        Assert.Equal(Constants.DefaultMaxCacheSizeBytes, options.MaxCacheSizeBytes);
+        Assert.True(options.EnableCompression);
+        Assert.Equal(Constants.DefaultCompressionThresholdBytes, options.CompressionThresholdBytes);
+        Assert.Equal(Constants.DefaultRetryCount, options.RetryCount);
+        Assert.Equal(Constants.DefaultRetryBaseDelaySeconds, options.RetryBaseDelaySeconds);
     }
 
     [Fact]
@@ -147,7 +146,7 @@ public class ConfigurationEdgeCaseTests
             var options = provider.GetRequiredService<IOptions<HybridCacheOptions>>().Value;
 
             // Empty env var should not override the config value
-            options.RedisConnectionString.Should().Be("from-config:6379");
+            Assert.Equal("from-config:6379", options.RedisConnectionString);
         }
         finally
         {

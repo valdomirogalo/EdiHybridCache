@@ -1,3 +1,4 @@
+using System.IO.Compression;
 using BenchmarkDotNet.Attributes;
 using BenchmarkDotNet.Running;
 using Microsoft.Extensions.Caching.Memory;
@@ -32,6 +33,11 @@ public class HybridCacheBenchmark
     private readonly string _mediumPayload = new('x', 10_000);
     private readonly string _largePayload = new('x', 200_000);
 
+    // Pre-serialized / pre-compressed payloads returned by the mocked Redis, so the benchmark
+    // measures only the cache path (no serialization/compression inside the measured loop).
+    private byte[] _testValueJson = null!;
+    private byte[] _compressedLargeJson = null!;
+
     private int _counter;
 
     [GlobalSetup]
@@ -56,9 +62,10 @@ public class HybridCacheBenchmark
         redisMock.Setup(x => x.GetDatabase(It.IsAny<int>(), It.IsAny<object>()))
                  .Returns(_redisDbMock.Object);
 
+        _testValueJson = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(_testValue);
         _redisDbMock
-            .Setup(x => x.StringGetAsync(_hitKey, It.IsAny<CommandFlags>()))
-            .ReturnsAsync((RedisValue)System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(_testValue));
+            .Setup(x => x.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .ReturnsAsync((RedisValue)_testValueJson);
         _redisDbMock
             .Setup(x => x.StringSetAsync(It.IsAny<RedisKey>(), It.IsAny<RedisValue>(), It.IsAny<TimeSpan?>(), It.IsAny<When>(), It.IsAny<CommandFlags>()))
             .ReturnsAsync(true);
@@ -92,6 +99,20 @@ public class HybridCacheBenchmark
             .ReturnsAsync(true);
 
         _cacheCompressed = CreateCache(compressedOptions, redisMock2.Object);
+
+        // Pre-compress the large payload so the compressed L2-hit benchmark returns it from
+        // the mock without paying for compression inside the measured path.
+        var largeJson = System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(_largePayload);
+        using (var ms = new MemoryStream())
+        {
+            using (var gz = new GZipStream(ms, CompressionLevel.Fastest, leaveOpen: true))
+                gz.Write(largeJson);
+            _compressedLargeJson = ms.ToArray();
+        }
+
+        _redisDbCompressedMock
+            .Setup(x => x.StringGetAsync(It.IsAny<RedisKey>(), It.IsAny<CommandFlags>()))
+            .ReturnsAsync((RedisValue)_compressedLargeJson);
 
         // ── Redis Pub/Sub invalidation publisher (mocked ISubscriber) ──
         // Measures the invalidation publish path: JSON serialized once to UTF-8 bytes
@@ -135,11 +156,9 @@ public class HybridCacheBenchmark
     [Benchmark(Description = "GetAsync L2 Hit")]
     public async Task<string?> GetAsync_L2Hit()
     {
-        var key = _missKey;
-        _redisDbMock
-            .Setup(x => x.StringGetAsync(key, It.IsAny<CommandFlags>()))
-            .ReturnsAsync((RedisValue)System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(_testValue));
-        return await _cache.GetAsync<string>(key);
+        // A fresh key on every call forces an L2 (Redis) hit + L1 repopulation, so the
+        // benchmark measures the L2-hit path instead of an L1 hit.
+        return await _cache.GetAsync<string>(NextKey());
     }
 
     [Benchmark(Description = "GetAsync L2 Miss")]
@@ -151,6 +170,10 @@ public class HybridCacheBenchmark
             .ReturnsAsync(RedisValue.Null);
         return await _cache.GetAsync<string>(key);
     }
+
+    [Benchmark(Description = "GetAsync L2 Hit (compressed, 200KB)")]
+    public async Task<string?> GetAsync_L2Hit_Compressed() =>
+        await _cacheCompressed.GetAsync<string>(NextKey());
 
     // ═══════════════════════════════════════════
     //  SETASYNC

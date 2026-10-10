@@ -1,4 +1,3 @@
-using System.Buffers;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Extensions.Caching.Memory;
@@ -147,15 +146,17 @@ public class HybridCache : IHybridCache
         }
     }
 
-    private async Task PublisherSafeExecuteAsync(Func<Task> operation, string key)
+    private async Task<bool> PublisherSafeExecuteAsync(Func<Task> operation, string key)
     {
         try
         {
             await operation().ConfigureAwait(false);
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Publisher operation failed for key {Key}. Remote invalidation skipped.", Constants.SanitizeForLog(key));
+            return false;
         }
     }
 
@@ -240,19 +241,34 @@ public class HybridCache : IHybridCache
             l2Ttl = _minL2Ttl;
         }
 
+        // Serialize and validate the size before storing, symmetric with the read path
+        // (DeserializeFromBytes rejects values above Constants.MaxValueSizeBytes).
+        var json = JsonSerializer.SerializeToUtf8Bytes(value, _jsonOptions);
+        if (!ValidateMaxSize(json.Length, key))
+            return;
+
+        var bytes = CompressIfNeeded(json);
+
         // Always write to L1 first (fast local cache)
         SetMemoryCache(key, value, _l1Ttl);
 
         _metrics.SetOperations.Add(1);
-        var bytes = SerializeValue(value);
-
         _metrics.RedisOperations.Add(1);
-        await RedisSafeExecuteAsync(
+        var stored = await RedisSafeExecuteAsync(
             () => _redisDb.StringSetAsync(key, bytes, l2Ttl), key).ConfigureAwait(false);
 
-        _logger.LogInformation(
-            "Cache set for key: {Key} with L1 TTL={L1Ttl}s, L2 TTL={L2Ttl}s",
-            Constants.SanitizeForLog(key), _options.L1TtlSeconds, l2Ttl.TotalSeconds);
+        if (stored)
+        {
+            _logger.LogInformation(
+                "Cache set for key: {Key} with L1 TTL={L1Ttl}s, L2 TTL={L2Ttl}s",
+                Constants.SanitizeForLog(key), _options.L1TtlSeconds, l2Ttl.TotalSeconds);
+        }
+        else
+        {
+            _logger.LogWarning(
+                "Redis write failed for key {Key}; value cached in L1 only (best-effort).",
+                Constants.SanitizeForLog(key));
+        }
     }
 
     // Covered by: RemoveAsync_ShouldClearL1L2AndPublishInvalidation (x1)
@@ -261,6 +277,7 @@ public class HybridCache : IHybridCache
     public async Task RemoveAsync(string key, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(key);
+        ValidateKeyLength(key);
 
         // Redis first: if deletion fails (exception propagates after retries), L1 is untouched
         // → consistent state. No event is published for a key still in Redis.
@@ -271,10 +288,12 @@ public class HybridCache : IHybridCache
 
         _metrics.RemoveOperations.Add(1);
         _memoryCache.Remove(key);
+        ReportL1CacheSize();
 
-        await PublisherSafeExecuteAsync(
+        var published = await PublisherSafeExecuteAsync(
             () => _publisher.PublishInvalidationAsync(key, cancellationToken), key).ConfigureAwait(false);
-        _metrics.InvalidationsPublished.Add(1);
+        if (published)
+            _metrics.InvalidationsPublished.Add(1);
         _logger.LogInformation("Cache removed and invalidation published for key: {Key}", Constants.SanitizeForLog(key));
     }
 
@@ -282,6 +301,7 @@ public class HybridCache : IHybridCache
     public async Task PublishInvalidationAsync(string key, CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(key);
+        ValidateKeyLength(key);
 
         await PublisherSafeExecuteAsync(
             () => _publisher.PublishInvalidationAsync(key, cancellationToken), key).ConfigureAwait(false);
@@ -291,22 +311,37 @@ public class HybridCache : IHybridCache
     public void InvalidateLocal(string key)
     {
         ArgumentNullException.ThrowIfNull(key);
+        ValidateKeyLength(key);
 
         _memoryCache.Remove(key);
+        ReportL1CacheSize();
     }
 
     private T? DeserializeRedisValue<T>(RedisValue redisValue, string key) where T : class
     {
-        var length = (int)redisValue.Length();
-        var buffer = ArrayPool<byte>.Shared.Rent(length);
+        // Zero-copy: the implicit RedisValue → byte[] conversion returns the underlying array
+        // without allocating (values are always stored as UTF-8 bytes).
+        var payload = (byte[])redisValue!;
 
         try
         {
-            ((byte[])redisValue!).CopyTo(buffer, 0);
-            if (!TryDecompressData(buffer.AsSpan(0, length), key, out var data))
-                return null;
+            if (_options.EnableCompression && payload.Length > _options.CompressionThresholdBytes)
+            {
+                // Decompress into a pooled buffer and deserialize directly from it — no second
+                // copy of the decompressed payload is materialized.
+                if (!CompressionHelper.TryDecompress(payload, out var decompressed))
+                {
+                    _logger.LogWarning("Failed to decompress value for key {Key}. Skipping.", Constants.SanitizeForLog(key));
+                    return null;
+                }
 
-            return JsonSerializer.Deserialize<T>(data, _jsonOptions);
+                using (decompressed)
+                {
+                    return DeserializeFromBytes<T>(decompressed.Span, key);
+                }
+            }
+
+            return DeserializeFromBytes<T>(payload, key);
         }
         catch (JsonException ex)
         {
@@ -316,46 +351,24 @@ public class HybridCache : IHybridCache
             _logger.LogError(ex, "Failed to deserialize value for key {Key}. Possible cache poisoning.", Constants.SanitizeForLog(key));
             return null;
         }
-        finally
-        {
-            ArrayPool<byte>.Shared.Return(buffer);
-        }
     }
 
-    private bool TryDecompressData(ReadOnlySpan<byte> data, string key, out ReadOnlySpan<byte> result)
+    private T? DeserializeFromBytes<T>(ReadOnlySpan<byte> data, string key) where T : class
     {
-        if (_options.EnableCompression && data.Length > _options.CompressionThresholdBytes)
-        {
-            if (!CompressionHelper.TryDecompress(data, out var decompressed))
-            {
-                _logger.LogWarning("Failed to decompress value for key {Key}. Skipping.", Constants.SanitizeForLog(key));
-                result = default;
-                return false;
-            }
-
-            data = decompressed.AsSpan();
-        }
-
         if (!ValidateMaxSize(data.Length, key))
-        {
-            result = default;
-            return false;
-        }
+            return null;
 
-        result = data;
-        return true;
+        return JsonSerializer.Deserialize<T>(data, _jsonOptions);
     }
 
-    private byte[] SerializeValue<T>(T value) where T : class
+    private byte[] CompressIfNeeded(byte[] json)
     {
-        var bytes = JsonSerializer.SerializeToUtf8Bytes(value, _jsonOptions);
-
-        if (_options.EnableCompression && bytes.Length > _options.CompressionThresholdBytes)
+        if (_options.EnableCompression && json.Length > _options.CompressionThresholdBytes)
         {
-            bytes = CompressionHelper.Compress(bytes);
+            return CompressionHelper.Compress(json);
         }
 
-        return bytes;
+        return json;
     }
 
     private void SetMemoryCache<T>(string key, T value, TimeSpan ttl) where T : class
@@ -366,5 +379,14 @@ public class HybridCache : IHybridCache
             .SetSize(1);
 
         _memoryCache.Set(key, value, cacheEntryOptions);
+        ReportL1CacheSize();
+    }
+
+    private void ReportL1CacheSize()
+    {
+        // The L1 cache is registered as MemoryCache; its Count reflects the current number of
+        // entries (O(1)). Keeps the observable gauge (edi.cache.size) in sync on every mutation.
+        if (_memoryCache is MemoryCache memoryCache)
+            _metrics.SetCurrentCacheSize(memoryCache.Count);
     }
 }

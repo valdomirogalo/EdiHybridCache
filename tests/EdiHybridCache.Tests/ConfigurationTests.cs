@@ -1,4 +1,4 @@
-using FluentAssertions;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
@@ -31,8 +31,8 @@ public class ConfigurationTests
         var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<HybridCacheOptions>>().Value;
 
-        options.L1TtlSeconds.Should().Be(120);
-        options.DefaultL2TtlSeconds.Should().Be(600);
+        Assert.Equal(120, options.L1TtlSeconds);
+        Assert.Equal(600, options.DefaultL2TtlSeconds);
     }
 
     [Fact]
@@ -55,8 +55,8 @@ public class ConfigurationTests
         var provider = services.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<HybridCacheOptions>>().Value;
 
-        options.L1TtlSeconds.Should().Be(999);
-        options.EnableCompression.Should().BeFalse();
+        Assert.Equal(999, options.L1TtlSeconds);
+        Assert.False(options.EnableCompression);
     }
 
     [Fact]
@@ -87,11 +87,11 @@ public class ConfigurationTests
             var options = provider.GetRequiredService<IOptions<HybridCacheOptions>>().Value;
 
             // Env vars should override config values
-            options.L1TtlSeconds.Should().Be(500);
-            options.DefaultL2TtlSeconds.Should().Be(2000);
-            options.L2TtlMultiplier.Should().Be(3.0);
-            options.RedisConnectionString.Should().Be("redis-prod:6379");
-            options.InvalidationChannel.Should().Be("edi.cache.invalidation.test");
+            Assert.Equal(500, options.L1TtlSeconds);
+            Assert.Equal(2000, options.DefaultL2TtlSeconds);
+            Assert.Equal(3.0, options.L2TtlMultiplier);
+            Assert.Equal("redis-prod:6379", options.RedisConnectionString);
+            Assert.Equal("edi.cache.invalidation.test", options.InvalidationChannel);
         }
         finally
         {
@@ -119,8 +119,8 @@ public class ConfigurationTests
         var provider = services.BuildServiceProvider();
         var act = () => provider.GetRequiredService<StackExchange.Redis.IConnectionMultiplexer>();
 
-        act.Should().Throw<InvalidOperationException>()
-            .WithMessage("Redis connection string is not configured.");
+        var ex = Assert.Throws<InvalidOperationException>(act);
+        Assert.Equal("Redis connection string is not configured.", ex.Message);
     }
 
     [Fact]
@@ -137,5 +137,46 @@ public class ConfigurationTests
         await provider.UseEdiHybridCacheSubscriberAsync();
 
         subscriberMock.Verify(x => x.StartAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public void AddEdiHybridCache_WithMaxCacheSize_ShouldConfigureMemoryCacheOptions()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["EdiHybridCache:RedisConnectionString"] = "localhost:6379",
+                ["EdiHybridCache:MaxCacheSizeBytes"] = "2048"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddEdiHybridCache(config);
+
+        var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<MemoryCacheOptions>();
+
+        Assert.Equal(2048L, options.SizeLimit);
+        Assert.Equal(Constants.CacheCompactionPercentage, options.CompactionPercentage);
+    }
+
+    [Fact]
+    public void AddEdiHybridCache_WithoutMaxCacheSize_ShouldDisableSizeLimit()
+    {
+        var config = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["EdiHybridCache:RedisConnectionString"] = "localhost:6379",
+                ["EdiHybridCache:MaxCacheSizeBytes"] = "0"
+            })
+            .Build();
+
+        var services = new ServiceCollection();
+        services.AddEdiHybridCache(config);
+
+        var provider = services.BuildServiceProvider();
+        var options = provider.GetRequiredService<MemoryCacheOptions>();
+
+        Assert.Null(options.SizeLimit);
     }
 }
